@@ -1,0 +1,20 @@
+# FastAPI and Server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Slack SDK
+slack-bolt==1.18.0
+slack-sdk==3.27.1
+
+# Google Cloud
+google-cloud-secret-manager==2.16.4
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.108.0
+
+# Utilities
+python-dotenv==1.0.0
+python-multipart==0.0.6
+
+# Development
+requests==2.31.0

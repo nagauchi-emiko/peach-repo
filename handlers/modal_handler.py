@@ -1,0 +1,102 @@
+"""
+モーダル送信 ハンドラー
+"""
+from datetime import datetime
+from slack_bolt import App
+from services.sheets_service import sheets_service
+from services.slack_service import slack_service
+from config import config
+
+
+def register_modal_handlers(app: App) -> None:
+    """
+    モーダル送信 ハンドラーを登録
+    
+    Args:
+        app: Slack Bolt アプリケーション
+    """
+    
+    @app.view("invoice_modal")
+    def handle_invoice_submission(ack, body, client, view):
+        """
+        請求書登録モーダル送信時の処理
+        """
+        ack()
+        
+        try:
+            user_id = body["user"]["id"]
+            timestamp = datetime.now().isoformat()
+            
+            # フォームの入力値を取得
+            values = view["state"]["values"]
+            
+            folder = values["folder_section"]["folder_select"]["selected_option"]["value"]
+            deadline = values["deadline_section"]["deadline_select"]["selected_date"]
+            company = values["company_block"]["company_input"]["value"]
+            expense_type = values["expense_section"]["expense_select"]["selected_option"]["value"]
+            amount = values["amount_block"]["amount_input"]["value"]
+            notes = values["notes_block"]["notes_input"].get("value", "")
+            
+            # ユーザー情報を取得
+            user_info = slack_service.get_user_info(user_id)
+            user_name = user_info["real_name"] if user_info else user_id
+            
+            # 請求書データを構築
+            invoice_data = {
+                "timestamp": timestamp,
+                "user_id": user_id,
+                "user_name": user_name,
+                "folder": folder,
+                "deadline": deadline,
+                "company": company,
+                "expense_type": expense_type,
+                "amount": amount,
+                "notes": notes
+            }
+            
+            # スプレッドシートに記録
+            sheets_service.append_invoice_data(data=invoice_data)
+            
+            # グループ DM を作成（実行ユーザー + 管理者）
+            admin_members = config.admin_group_members if config.admin_group_members else []
+            
+            # admin_group_members には複数のユーザーIDが含まれることを想定（カンマ区切り）
+            if isinstance(admin_members, list):
+                group_members = [user_id] + admin_members
+            else:
+                group_members = [user_id] + admin_members.split(",")
+            
+            group_members = [m.strip() for m in group_members if m.strip()]
+            
+            # 重複を除去
+            group_members = list(set(group_members))
+            
+            channel_id = slack_service.create_group_dm(group_members)
+            if not channel_id:
+                print(f"Failed to create group DM for users: {group_members}")
+                return
+            
+            # メッセージを送信
+            message_ts = slack_service.post_invoice_message(
+                channel_id=channel_id,
+                invoice_data=invoice_data,
+                user_id=user_id
+            )
+            
+            if message_ts:
+                # スプレッドシートに thread_ts を記録
+                sheets_service.update_invoice_status(
+                    row_index=1,  # 最後に追加された行のインデックスは別途取得が必要
+                    status="pending",
+                    drive_file_url=""
+                )
+                
+                # ユーザーに確認メッセージを送信
+                client.chat_postMessage(
+                    channel=user_id,
+                    text="✅ 請求書登録が完了しました。\n\nグループ DM に登録内容が共有されました。"
+                )
+        except Exception as e:
+            print(f"Error handling invoice submission: {e}")
+            import traceback
+            traceback.print_exc()
