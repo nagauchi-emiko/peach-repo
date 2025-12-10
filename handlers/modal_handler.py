@@ -7,22 +7,24 @@ from services.sheets_service import sheets_service
 from services.slack_service import slack_service
 from config import config
 
+"""
+モーダル送信 ハンドラーを登録
 
-def register_modal_handlers(app: App) -> None:
-    """
-    モーダル送信 ハンドラーを登録
-    
-    Args:
-        app: Slack Bolt アプリケーション
-    """
-    
+Args:
+    app: Slack Bolt アプリケーション
+"""
+def register_modal_handlers(app: App) -> None:    
     @app.view("invoice_modal")
     def handle_invoice_submission(ack, body, client, view):
         """
         請求書登録モーダル送信時の処理
         """
         ack()
-        
+        print(f"★invoice_modal★: {body['user']['id']}")
+        # ファイルにもログを出力
+        with open("modal_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"invoice_modal triggered by: {body['user']['id']}\n")
+
         try:
             user_id = body["user"]["id"]
             timestamp = datetime.now().isoformat()
@@ -54,20 +56,26 @@ def register_modal_handlers(app: App) -> None:
                 "notes": notes
             }
             
-            # スプレッドシートに記録
-            sheets_service.append_invoice_data(data=invoice_data)
+            # # スプレッドシートに記録
+            # sheets_service.append_invoice_data(data=invoice_data)
             
             # グループ DM を作成（実行ユーザー + 管理者）
             admin_members = config.admin_group_members if config.admin_group_members else []
             
+            print(f"config.admin_group_members: {config.admin_group_members}")
+
             # admin_group_members には複数のユーザーIDが含まれることを想定（カンマ区切り）
             if isinstance(admin_members, list):
                 group_members = [user_id] + admin_members
             else:
                 group_members = [user_id] + admin_members.split(",")
             
+            print(f"group_menbers1: {group_members}")
+
             group_members = [m.strip() for m in group_members if m.strip()]
             
+            print(f"group_menbers2: {group_members}")
+
             # 重複を除去
             group_members = list(set(group_members))
             
@@ -84,12 +92,12 @@ def register_modal_handlers(app: App) -> None:
             )
             
             if message_ts:
-                # スプレッドシートに thread_ts を記録
-                sheets_service.update_invoice_status(
-                    row_index=1,  # 最後に追加された行のインデックスは別途取得が必要
-                    status="pending",
-                    drive_file_url=""
-                )
+                # # スプレッドシートに thread_ts を記録
+                # sheets_service.update_invoice_status(
+                #     row_index=1,  # 最後に追加された行のインデックスは別途取得が必要
+                #     status="pending",
+                #     drive_file_url=""
+                # )
                 
                 # ユーザーに確認メッセージを送信
                 client.chat_postMessage(
@@ -100,3 +108,9 @@ def register_modal_handlers(app: App) -> None:
             print(f"Error handling invoice submission: {e}")
             import traceback
             traceback.print_exc()
+            # 例外発生時にSlackモーダルへエラーを返す
+            ack(response_action={
+                "errors": {
+                    "__all__": "エラーが発生しました。管理者に連絡してください。"
+                }
+            })

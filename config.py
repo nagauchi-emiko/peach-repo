@@ -29,7 +29,7 @@ class Config:
         
         self.slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
         self.slack_signing_secret = os.environ.get("SLACK_SIGNING_SECRET")
-        self.google_service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "sandbox-nagauchi-cc008592af0c.json")
+        self.google_service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
         self.management_spreadsheet_id = os.environ.get("MANAGEMENT_SPREADSHEET_ID")
         self.google_drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
         self.admin_group_members = os.environ.get("ADMIN_GROUP_MEMBERS", "").split(",")

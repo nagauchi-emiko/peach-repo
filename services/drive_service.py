@@ -3,39 +3,37 @@ Google Drive サービス - PDF ファイルをアップロード
 """
 import json
 import io
+import os
+import pickle
 from typing import Optional, Dict
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from googleapiclient.errors import HttpError
 from config import config
+from google.oauth2.credentials import Credentials  # 追加
 
 
 class DriveService:
-    """Google Drive 連携クラス"""
+    """Google Drive 連携クラス（OAuth2.0ユーザー認証対応）"""
     
     SCOPES = [
         'https://www.googleapis.com/auth/drive'
     ]
     
-    def __init__(self):
-        """初期化"""
+    def __init__(self, user_id):
+        """
+        初期化
+        Args:
+            user_id: SlackユーザーID（クレデンシャルファイル名に使用）
+        """
         try:
-            # サービスアカウント認証情報を取得
-            if config.environment == "development":
-                # ローカル開発環境: JSONファイルから読み込み
-                self.credentials = service_account.Credentials.from_service_account_file(
-                    config.google_service_account_json,
-                    scopes=self.SCOPES
-                )
-            else:
-                # Cloud Run環境: Secret Manager から取得した JSON を解析
-                service_account_info = json.loads(config.google_service_account_json)
-                self.credentials = service_account.Credentials.from_service_account_info(
-                    service_account_info,
-                    scopes=self.SCOPES
-                )
-            
+            token_path = os.path.join(os.path.dirname(__file__), "user_tokens", f"{user_id}.pickle")
+            if not os.path.exists(token_path):
+                raise FileNotFoundError(f"クレデンシャルファイルが見つかりません: {token_path}")
+            with open(token_path, "rb") as token:
+                credentials = pickle.load(token)
+            self.credentials = credentials
             self.drive_service = build('drive', 'v3', credentials=self.credentials)
             self.folder_id = config.google_drive_folder_id
         except Exception as e:
@@ -62,6 +60,8 @@ class DriveService:
             アップロードしたファイルの情報 {"id": "...", "name": "...", "webViewLink": "..."}
             失敗時は None
         """
+        print(f"upload_pdf関数: {file_name}")
+
         try:
             if not self.drive_service:
                 return None
@@ -87,6 +87,8 @@ class DriveService:
                 fields='id, name, webViewLink, createdTime'
             ).execute()
             
+            print(f"upload_pdf関数 return直前: {file}")
+
             return {
                 'id': file.get('id'),
                 'name': file.get('name'),
@@ -173,14 +175,14 @@ class DriveService:
             creds: Google OAuth2認証情報
         """
         try:
-            # Drive APIサービスの構築
-            service = build('drive', 'v3', credentials=creds)
+            # # Drive APIサービスの構築
+            # service = build('drive', 'v3', credentials=creds)
             
             # クエリの作成（指定フォルダ配下のフォルダのみ取得）
             query = f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
             
             # API呼び出し
-            results = service.files().list(
+            results = drive_service.files().list(
                 q=query,
                 fields='files(id, name, createdTime, modifiedTime)',
                 pageSize=100
@@ -207,6 +209,3 @@ class DriveService:
         except HttpError as error:
             print(f'エラーが発生しました: {error}')
             return []
-
-# グローバルインスタンス
-drive_service = DriveService()

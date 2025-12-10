@@ -16,7 +16,8 @@ def register_command_handlers(app: App) -> None:
         user_id = command["user_id"]
         credentials = load_credentials(user_id)
         if not credentials:
-            auth_url = f"https://your-domain/auth/google?user_id={user_id}"
+            # auth_url = f"https://your-domain/auth/google?user_id={user_id}"
+            auth_url = f"https://brentley-ungrafted-unmeaningfully.ngrok-free.dev/auth/google?user_id={user_id}"
             client.chat_postEphemeral(
                 channel=command["channel_id"],
                 user=user_id,

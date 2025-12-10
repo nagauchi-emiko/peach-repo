@@ -15,8 +15,8 @@ ngrok config add-authtoken <取得したトークン>
 python main.py
 
 4. ngrokでポートを公開
-アプリがリッスンしているポート（例：5000）をngrokで公開します：
-ngrok http 5000
+アプリがリッスンしているポート（例：8080）をngrokで公開します：
+ngrok http 8080
 
 5. 発行されたURLでテスト
 ngrokのコマンド実行後、

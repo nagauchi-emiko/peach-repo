@@ -7,12 +7,14 @@ import pickle
 
 router = APIRouter()
 
-CLIENT_SECRET_FILE = "client_secret.json"
+# CLIENT_SECRET_FILE = "client_secret.json"
+CLIENT_SECRET_FILE = "client_secret_626945538637-sdoiptibp2i2ogrlct1r3psm8auepahh.apps.googleusercontent.com.json"
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets"
 ]
-REDIRECT_URI = "https://your-domain/auth/google/callback"
+# REDIRECT_URI = "https://your-domain/auth/google/callback"
+REDIRECT_URI = "https://brentley-ungrafted-unmeaningfully.ngrok-free.dev/auth/google/callback"
 TOKEN_DIR = "user_tokens"
 os.makedirs(TOKEN_DIR, exist_ok=True)
 
@@ -54,4 +56,4 @@ async def google_auth_callback(request: Request):
     flow.fetch_token(code=code)
     credentials = flow.credentials
     save_credentials(state, credentials)
-    return HTMLResponse(f"<h2>Google認証が完了しました。Slackに戻って操作を再開してください。</h2>")
+    return HTMLResponse(f"<h3>Google認証が完了しました。Slackに戻って操作を再開してください。</h3>")

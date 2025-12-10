@@ -59,7 +59,7 @@ class SlackService:
                     "type": "header",
                     "text": {
                         "type": "plain_text",
-                        "text": "📋 請求書登録確認"
+                        "text": "📋 請求書登録確認  ※開発中のアプリのテストです！※"
                     }
                 },
                 {
@@ -109,7 +109,7 @@ class SlackService:
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*請求金額*\n¥{invoice_data.get('amount', '0'):,}"
+                            "text": f"*請求金額*\n¥{invoice_data.get('amount', '0')}"
                         },
                         {
                             "type": "mrkdwn",

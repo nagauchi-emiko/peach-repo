@@ -22,6 +22,7 @@ def register_file_handlers(app: App) -> None:
         """
         Slack にファイルがアップロードされたときの処理
         """
+        print(f"handle_file_shared関数: {body["event"]}")
         try:
             event = body["event"]
             file_id = event["file_id"]
@@ -43,7 +44,10 @@ def register_file_handlers(app: App) -> None:
                 return
             
             file_name = file_info.get("name", "document.pdf")
-            
+
+            print(f"file_name: {file_name}")
+            print(f"file_info: {file_info}")
+
             # ファイルをダウンロード
             download_url = file_info.get("url_private_download")
             if not download_url:
@@ -55,7 +59,7 @@ def register_file_handlers(app: App) -> None:
                 return
             
             # Slack API トークンをヘッダーに含めてダウンロード
-            headers = {"Authorization": f"Bearer {client._token}"}
+            headers = {"Authorization": f"Bearer {client.token}"}
             request = urllib.request.Request(download_url, headers=headers)
             
             try:
