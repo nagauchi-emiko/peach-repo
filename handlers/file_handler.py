@@ -7,6 +7,8 @@ from services.drive_service import drive_service
 from services.slack_service import slack_service
 from services.sheets_service import sheets_service
 import urllib.request
+import threading
+import time
 
 
 def register_file_handlers(app: App) -> None:
@@ -16,12 +18,51 @@ def register_file_handlers(app: App) -> None:
     Args:
         app: Slack Bolt アプリケーション
     """
+
+    # 簡易的な「処理済みイベントID」の保存場所（プロセスが落ちると消える）
+    # 本番は DB などを推奨
+    processed_events = {}
+
+    def is_event_processed(event_id: str, ttl_seconds: int = 60 * 60) -> bool:
+        """event_id がすでに処理済みかどうかを判定"""
+        now = time.time()
+        # 古いものを軽く掃除
+        for k, v in list(processed_events.items()):
+            if now - v > ttl_seconds:
+                processed_events.pop(k, None)
+
+        if event_id in processed_events:
+            return True
+
+        processed_events[event_id] = now
+        return False
     
     @app.event("file_shared")
-    def handle_file_shared(body, client: WebClient):
+    def handle_file_shared(body, client: WebClient, ack):
         """
         Slack にファイルがアップロードされたときの処理
         """
+         # まず即座に ACK を返す（Slack への 200 OK）
+        ack()
+
+        # バックグラウンドで処理させる
+        thread = threading.Thread(
+            target=process,
+            args=(body, client)
+            )
+        thread.start()
+
+    # 以降の重い処理は別スレッドで実行するなどして、
+    # ACK のレスポンス時間に影響しないようにする
+    def process(body, client: WebClient):
+        event_id = body.get("event_id")
+
+        # ---- ここで二重実行を防ぐ ----
+        if event_id and is_event_processed(event_id):
+            print(f"Duplicate event {event_id} skipped")
+            return
+        # --------------------------------
+
         print(f"handle_file_shared関数: {body["event"]}")
         try:
             event = body["event"]
@@ -74,11 +115,14 @@ def register_file_handlers(app: App) -> None:
                 )
                 return
             
+            # ユーザーごとのcredentialsをロード
+            drive_service.init(user_id = user_id)
+
             # Google Drive にアップロード
             upload_result = drive_service.upload_pdf(
                 file_content=file_content,
                 file_name=file_name,
-                folder_name="請求書"
+                folder_name="格納フォルダ１"
             )
             
             if not upload_result:
@@ -109,3 +153,5 @@ def register_file_handlers(app: App) -> None:
             print(f"Error handling file upload: {e}")
             import traceback
             traceback.print_exc()
+    
+    

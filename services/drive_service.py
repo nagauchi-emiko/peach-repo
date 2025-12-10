@@ -3,15 +3,13 @@ Google Drive サービス - PDF ファイルをアップロード
 """
 import json
 import io
-import os
-import pickle
 from typing import Optional, Dict
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from googleapiclient.errors import HttpError
 from config import config
-from google.oauth2.credentials import Credentials  # 追加
+from auth_router import load_credentials
 
 
 class DriveService:
@@ -21,25 +19,23 @@ class DriveService:
         'https://www.googleapis.com/auth/drive'
     ]
     
-    def __init__(self, user_id):
+    def __init__(self):
+        print(f"DriveService.__init__")
+    
+    def init(self, user_id: str):
         """
         初期化
         Args:
-            user_id: SlackユーザーID（クレデンシャルファイル名に使用）
+            credentials: google.oauth2.credentials.Credentials インスタンス（ユーザーごとの認証情報）
         """
         try:
-            token_path = os.path.join(os.path.dirname(__file__), "user_tokens", f"{user_id}.pickle")
-            if not os.path.exists(token_path):
-                raise FileNotFoundError(f"クレデンシャルファイルが見つかりません: {token_path}")
-            with open(token_path, "rb") as token:
-                credentials = pickle.load(token)
-            self.credentials = credentials
+            self.credentials = load_credentials(user_id)
             self.drive_service = build('drive', 'v3', credentials=self.credentials)
             self.folder_id = config.google_drive_folder_id
         except Exception as e:
             print(f"Error initializing DriveService: {e}")
             self.drive_service = None
-    
+
     def upload_pdf(
         self,
         file_content: bytes,
@@ -68,6 +64,8 @@ class DriveService:
             
             parent_id = parent_folder_id or self.folder_id
             
+            print(f"parent_id: {parent_id}")
+
             # 保存先フォルダを取得または作成
             target_folder_id = self._get_or_create_folder(folder_name, parent_id)
             if not target_folder_id:
@@ -84,7 +82,8 @@ class DriveService:
             file = self.drive_service.files().create(
                 body=file_metadata,
                 media_body=media,
-                fields='id, name, webViewLink, createdTime'
+                fields='id, name, webViewLink, createdTime',
+                supportsAllDrives=True
             ).execute()
             
             print(f"upload_pdf関数 return直前: {file}")
@@ -119,12 +118,18 @@ class DriveService:
                 f"trashed=false"
             )
             
+            print(f"query: {query}")
+
             results = self.drive_service.files().list(
                 q=query,
                 spaces='drive',
                 fields='files(id)',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
                 pageSize=1
             ).execute()
+
+            print(f"query results: {results}")
             
             files = results.get('files', [])
             if files:
@@ -139,7 +144,8 @@ class DriveService:
             
             folder = self.drive_service.files().create(
                 body=folder_metadata,
-                fields='id'
+                fields='id',
+                supportsAllDrives=True
             ).execute()
             
             return folder.get('id')
@@ -209,3 +215,6 @@ class DriveService:
         except HttpError as error:
             print(f'エラーが発生しました: {error}')
             return []
+
+#グローバルクラス
+drive_service = DriveService()
