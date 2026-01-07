@@ -4,6 +4,7 @@
 import os
 from typing import Optional
 from google.cloud import secretmanager
+import sys
 
 
 class Config:
@@ -12,8 +13,15 @@ class Config:
     def __init__(self):
         # 環境
         self.environment = os.environ.get("ENVIRONMENT", "development")
+        # --- デバッグ用に追加 ---
+        print(f"DEBUG: Current Environment is {self.environment}")
+        print(f"DEBUG: Signing Secret exists: {bool(os.environ.get('SLACK_SIGNING_SECRET'))}")
+        # ----------------------
         self.project_id = os.environ.get("GCP_PROJECT_ID", "sandbox-nagauchi")
         self.port = int(os.environ.get("PORT", 8080))
+
+        self.google_drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+        self.admin_group_members = os.environ.get("ADMIN_GROUP_MEMBERS", "").split(",")
         
         # ローカル開発環境では .env ファイルから読み込み
         if self.environment == "development":
@@ -29,20 +37,27 @@ class Config:
         
         self.slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
         self.slack_signing_secret = os.environ.get("SLACK_SIGNING_SECRET")
-        self.google_service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-        self.management_spreadsheet_id = os.environ.get("MANAGEMENT_SPREADSHEET_ID")
-        self.google_drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-        self.admin_group_members = os.environ.get("ADMIN_GROUP_MEMBERS", "").split(",")
+        # self.google_service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") 要らないかも★
+
+        # auth_router.py用定数
+        self.client_secret_file = os.environ.get("CLIENT_SECRET_FILE")
+        self.redirect_uri = os.environ.get("REDIRECT_URI")
+        # self.token_dir = os.environ.get("TOKEN_DIR") 要らないかも★
+        scopes_raw = os.environ.get("SCOPES")
+        self.scopes = scopes_raw.split(",") if scopes_raw else []
     
     def _load_from_secret_manager(self):
         """Cloud Run環境用: Secret Manager から読み込み"""
-        self.slack_bot_token = self._get_secret("slack-bot-token")
-        self.slack_signing_secret = self._get_secret("slack-signing-secret")
-        self.google_service_account_json = self._get_secret("google-service-account-json")
-        self.management_spreadsheet_id = self._get_secret("management-spreadsheet-id")
-        self.google_drive_folder_id = self._get_secret("google-drive-folder-id")
-        admin_members = self._get_secret("admin-group-members")
-        self.admin_group_members = admin_members.split(",") if admin_members else []
+        self.slack_bot_token = self._get_secret("SLACK_BOT_TOKEN")
+        self.slack_signing_secret = self._get_secret("SLACK_SIGNING_SECRET")
+        # self.google_service_account_json = self._get_secret("google-service-account-json") 要らないかも★
+        
+        # auth_router.py用定数
+        self.client_secret_file = "/secrets/client_secret.json"
+        self.redirect_uri = self._get_secret("REDIRECT_URI")
+        # self.token_dir = self._get_secret("TOKEN_DIR") 要らないかも★
+        scopes_raw = self._get_secret("SCOPES")
+        self.scopes = scopes_raw.split(",") if scopes_raw else []
     
     def _get_secret(self, secret_id: str) -> Optional[str]:
         """Secret Manager からシークレットを取得"""

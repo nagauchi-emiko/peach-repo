@@ -32,12 +32,14 @@ def register_modal_handlers(app: App) -> None:
             # フォームの入力値を取得
             values = view["state"]["values"]
             
-            folder = values["folder_section"]["folder_select"]["selected_option"]["value"]
+            folder = values["folder_section"]["folder_select"]["selected_option"]["text"]["text"]
+            folder_id = values["folder_section"]["folder_select"]["selected_option"]["value"]
             deadline = values["deadline_section"]["deadline_select"]["selected_date"]
             company = values["company_block"]["company_input"]["value"]
             expense_type = values["expense_section"]["expense_select"]["selected_option"]["value"]
+            currency = values["currency_section"]["currency_select"]["selected_option"]["value"]
             amount = values["amount_block"]["amount_input"]["value"]
-            notes = values["notes_block"]["notes_input"].get("value", "")
+            notes = values["notes_block"]["notes_input"].get("value") or ""
             
             # ユーザー情報を取得
             user_info = slack_service.get_user_info(user_id)
@@ -49,9 +51,11 @@ def register_modal_handlers(app: App) -> None:
                 "user_id": user_id,
                 "user_name": user_name,
                 "folder": folder,
+                "folder_id": folder_id,
                 "deadline": deadline,
                 "company": company,
                 "expense_type": expense_type,
+                "currency": currency,
                 "amount": amount,
                 "notes": notes
             }
@@ -69,12 +73,9 @@ def register_modal_handlers(app: App) -> None:
                 group_members = [user_id] + admin_members
             else:
                 group_members = [user_id] + admin_members.split(",")
-            
-            print(f"group_menbers1: {group_members}")
-
             group_members = [m.strip() for m in group_members if m.strip()]
             
-            print(f"group_menbers2: {group_members}")
+            print(f"group_menbers: {group_members}")
 
             # 重複を除去
             group_members = list(set(group_members))
@@ -92,18 +93,14 @@ def register_modal_handlers(app: App) -> None:
             )
             
             if message_ts:
+                print(f"ここでスプシに記録？")
                 # # スプレッドシートに thread_ts を記録
                 # sheets_service.update_invoice_status(
                 #     row_index=1,  # 最後に追加された行のインデックスは別途取得が必要
                 #     status="pending",
                 #     drive_file_url=""
                 # )
-                
-                # ユーザーに確認メッセージを送信
-                client.chat_postMessage(
-                    channel=user_id,
-                    text="✅ 請求書登録が完了しました。\n\nグループ DM に登録内容が共有されました。"
-                )
+
         except Exception as e:
             print(f"Error handling invoice submission: {e}")
             import traceback

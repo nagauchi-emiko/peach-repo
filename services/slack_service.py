@@ -52,6 +52,11 @@ class SlackService:
         Returns:
             メッセージの タイムスタンプ（ts）
         """
+        
+        """
+        保存PDFファイル名規則
+            【yyyymm期限】_[社名]_[部門]_[金額]_[仕入れか販管費か]_[経理への連絡]_[アップロードyyyymmddhhmmss].pdf
+        """
         try:
             # ブロックを構築
             blocks = [
@@ -71,7 +76,7 @@ class SlackService:
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*登録日時*\n{invoice_data.get('timestamp', '未設定')}"
+                            "text": f"*実行日時*\n{invoice_data.get('timestamp', '未設定')}"
                         }
                     ]
                 },
@@ -87,7 +92,7 @@ class SlackService:
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*支払期限*\n{invoice_data.get('deadline', '未設定')}"
+                            "text": f"*フォルダID*\n{invoice_data.get('folder_id', '未設定')}"
                         }
                     ]
                 },
@@ -106,16 +111,37 @@ class SlackService:
                 },
                 {
                     "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*支払期限*\n{invoice_data.get('deadline', '未設定')}"
+                    }
+                },
+                {
+                    "type": "section",
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*請求金額*\n¥{invoice_data.get('amount', '0')}"
+                            "text": f"*通貨*\n{invoice_data.get('currency', '日本円')}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*連絡事項*\n{invoice_data.get('notes', 'なし')}"
+                            "text": f"*請求金額*\n{invoice_data.get('amount', '0')}"
                         }
                     ]
+                },
+                {
+                    "type": "section",
+                    "text": {
+                            "type": "mrkdwn",
+                            "text": f"*連絡事項*\n{invoice_data.get('notes', 'なし')}"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                            "type": "mrkdwn",
+                            "text": f"*保存ファイル名*\n【{invoice_data.get('deadline')}期限】_{invoice_data.get('company')}_{invoice_data.get('folder')}_{invoice_data.get('amount')}_{invoice_data.get('notes')}_格納日時.pdf"
+                    }
                 },
                 {
                     "type": "divider"
@@ -133,6 +159,13 @@ class SlackService:
                 channel=channel_id,
                 blocks=blocks,
                 text="請求書登録確認"
+                # text="請求書登録確認",
+                # metadata={
+                #     "event_type": "pdf_processing_task",
+                #     "event_payload": {
+                #         "hidden_folder_id": invoice_data.get('folder_id', '未設定') 
+                #     }
+                # }
             )
             
             return response['ts']

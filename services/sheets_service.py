@@ -8,6 +8,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from config import config
+from auth_router import load_credentials
 
 
 class SheetsService:
@@ -19,28 +20,22 @@ class SheetsService:
     ]
     
     def __init__(self):
-        """初期化"""
+        print(f"SheetsService.__init__")
+    
+    def init(self, user_id: str):
+        """
+        初期化
+        Args:
+            credentials: google.oauth2.credentials.Credentials インスタンス（ユーザーごとの認証情報）
+        """
         try:
-            # サービスアカウント認証情報を取得
-            if config.environment == "development":
-                # ローカル開発環境: JSONファイルから読み込み
-                self.credentials = service_account.Credentials.from_service_account_file(
-                    config.google_service_account_json,
-                    scopes=self.SCOPES
-                )
-            else:
-                # Cloud Run環境: Secret Manager から取得した JSON を解析
-                service_account_info = json.loads(config.google_service_account_json)
-                self.credentials = service_account.Credentials.from_service_account_info(
-                    service_account_info,
-                    scopes=self.SCOPES
-                )
-            
+            self.credentials = load_credentials(user_id)
             self.sheets_service = build('sheets', 'v4', credentials=self.credentials)
             self.spreadsheet_id = config.management_spreadsheet_id
         except Exception as e:
             print(f"Error initializing SheetsService: {e}")
             self.sheets_service = None
+
     
     def get_folders(self, sheet_name: str = "フォルダ設定") -> List[Dict[str, str]]:
         """
@@ -88,14 +83,14 @@ class SheetsService:
             sheet_name: シートの名前（デフォルト: "経費区分"）
         
         Returns:
-            経費区分のリスト [{"label": "仕入", "value": "materials"}, {"label": "販管費", "value": "opex"}, ...]
+            経費区分のリスト [{"label": "仕入", "value": "仕入"}, {"label": "販管費", "value": "販管費"}, ...]
         """
         try:
             if not self.sheets_service or not self.spreadsheet_id:
                 # デフォルト値を返す
                 return [
-                    {"label": "仕入", "value": "materials"},
-                    {"label": "販管費", "value": "opex"}
+                    {"label": "仕入", "value": "仕入"},
+                    {"label": "販管費", "value": "販管費"}
                 ]
             
             result = self.sheets_service.spreadsheets().values().get(
@@ -106,8 +101,8 @@ class SheetsService:
             rows = result.get('values', [])
             if not rows or len(rows) < 2:
                 return [
-                    {"label": "仕入", "value": "materials"},
-                    {"label": "販管費", "value": "opex"}
+                    {"label": "仕入", "value": "仕入"},
+                    {"label": "販管費", "value": "販管費"}
                 ]
             
             expense_types = []
@@ -119,16 +114,69 @@ class SheetsService:
                     })
             
             return expense_types if expense_types else [
-                {"label": "仕入", "value": "materials"},
-                {"label": "販管費", "value": "opex"}
+                {"label": "仕入", "value": "仕入"},
+                {"label": "販管費", "value": "販管費"}
             ]
         except HttpError as e:
             print(f"Error getting expense types: {e}")
             return [
-                {"label": "仕入", "value": "materials"},
-                {"label": "販管費", "value": "opex"}
+                {"label": "仕入", "value": "仕入"},
+                {"label": "販管費", "value": "販管費"}
             ]
     
+    def get_currencies(self, sheet_name: str = "通貨") -> List[Dict[str, str]]:
+        """
+        管理用スプレッドシートから通貨（日本円 or 米ドル or タイバーツ）を取得
+        
+        Args:
+            sheet_name: シートの名前（デフォルト: "通貨"）
+        
+        Returns:
+            通貨のリスト [{"label": "日本円", "value": "jpy"}, {"label": "米ドル", "value": "usd"}, ...]
+        """
+        try:
+            if not self.sheets_service or not self.spreadsheet_id:
+                # デフォルト値を返す
+                return [
+                    {"label": "日本円", "value": "JPY"},
+                    {"label": "米ドル", "value": "USD"},
+                    {"label": "タイバーツ", "value": "THB"}
+                ]
+            
+            result = self.sheets_service.spreadsheets().values().get(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"'{sheet_name}'!A1:B999"
+            ).execute()
+            
+            rows = result.get('values', [])
+            if not rows or len(rows) < 3:
+                return [
+                    {"label": "日本円", "value": "JPY"},
+                    {"label": "米ドル", "value": "USD"},
+                    {"label": "タイバーツ", "value": "THB"}
+                ]
+            
+            currencies = []
+            for row in rows[1:]:
+                if len(row) >= 3 and row[0] and row[1]:
+                    currencies.append({
+                        "label": row[0],
+                        "value": row[1]
+                    })
+            
+            return currencies if currencies else [
+                {"label": "日本円", "value": "JPY"},
+                {"label": "米ドル", "value": "USD"},
+                {"label": "タイバーツ", "value": "THB"}
+            ]
+        except HttpError as e:
+            print(f"Error getting expense types: {e}")
+            return [
+                {"label": "日本円", "value": "JPY"},
+                {"label": "米ドル", "value": "USD"},
+                {"label": "タイバーツ", "value": "THB"}
+            ]
+
     def append_invoice_data(
         self,
         sheet_name: str = "請求書データ",
@@ -157,6 +205,7 @@ class SheetsService:
                 data.get("deadline", ""),
                 data.get("company", ""),
                 data.get("expense_type", ""),
+                data.get("currency", ""),
                 data.get("amount", ""),
                 data.get("notes", ""),
                 data.get("status", "pending"),
