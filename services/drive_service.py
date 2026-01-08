@@ -36,7 +36,7 @@ class DriveService:
             # Firestoreからfolder_idを取得
             try:
                 db = firestore.Client()
-                doc = db.collection("folders_info").document("config").get()
+                doc = db.collection("settings").document("app_config").get()
                 if doc.exists:
                     self.folder_id = doc.to_dict().get("google_drive_folder_id")
                 else:

@@ -1,64 +1,80 @@
-"""
-設定ファイル - GCP Secret Managerから環境変数を取得
-"""
 import os
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from google.cloud import secretmanager
-import sys
-
+from google.cloud import firestore
 
 class Config:
     """アプリケーション設定クラス"""
     
     def __init__(self):
-        # 環境
+        # 1. 環境変数 (Platform/Infrastructure settings)
         self.environment = os.environ.get("ENVIRONMENT", "development")
-        # --- デバッグ用に追加 ---
-        print(f"DEBUG: Current Environment is {self.environment}")
-        print(f"DEBUG: Signing Secret exists: {bool(os.environ.get('SLACK_SIGNING_SECRET'))}")
-        # ----------------------
         self.project_id = os.environ.get("GCP_PROJECT_ID", "sandbox-nagauchi")
         self.port = int(os.environ.get("PORT", 8080))
 
-        self.google_drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-        self.admin_group_members = os.environ.get("ADMIN_GROUP_MEMBERS", "").split(",")
-        
-        # ローカル開発環境では .env ファイルから読み込み
+        # 初期化
+        self.slack_bot_token = None
+        self.slack_signing_secret = None
+        self.google_drive_folder_id = None
+        self.admin_group_members = []
+        self.redirect_uri = None
+        self.scopes = []
+
+        # 2. データの読み込み
         if self.environment == "development":
             self._load_from_env_file()
         else:
-            # Cloud Run 環境では Secret Manager から読み込み
+            # Cloud Run / Production 環境
             self._load_from_secret_manager()
-    
+            self._load_from_firestore()
+
+        # デバッグ用
+        print(f"DEBUG: Environment: {self.environment}")
+        print(f"DEBUG: Google Drive Folder ID: {self.google_drive_folder_id}")
+
     def _load_from_env_file(self):
-        """ローカル開発環境用: .env ファイルから読み込み"""
+        """ローカル開発環境用: .env ファイルから全て読み込み"""
         from dotenv import load_dotenv
         load_dotenv()
         
+        # Secrets
         self.slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
         self.slack_signing_secret = os.environ.get("SLACK_SIGNING_SECRET")
-        # self.google_service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") 要らないかも★
-
-        # auth_router.py用定数
         self.client_secret_file = os.environ.get("CLIENT_SECRET_FILE")
+        
+        # Firestore相当の設定もローカルでは .env から
+        self.google_drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+        self.admin_group_members = os.environ.get("ADMIN_GROUP_MEMBERS", "").split(",")
         self.redirect_uri = os.environ.get("REDIRECT_URI")
-        # self.token_dir = os.environ.get("TOKEN_DIR") 要らないかも★
         scopes_raw = os.environ.get("SCOPES")
         self.scopes = scopes_raw.split(",") if scopes_raw else []
-    
+
     def _load_from_secret_manager(self):
-        """Cloud Run環境用: Secret Manager から読み込み"""
+        """Cloud Run環境用: Secret Manager から機密情報を取得"""
         self.slack_bot_token = self._get_secret("SLACK_BOT_TOKEN")
         self.slack_signing_secret = self._get_secret("SLACK_SIGNING_SECRET")
-        # self.google_service_account_json = self._get_secret("google-service-account-json") 要らないかも★
-        
-        # auth_router.py用定数
+        # クライアントシークレットをファイルとしてマウントしている場合
         self.client_secret_file = "/secrets/client_secret.json"
-        self.redirect_uri = self._get_secret("REDIRECT_URI")
-        # self.token_dir = self._get_secret("TOKEN_DIR") 要らないかも★
-        scopes_raw = self._get_secret("SCOPES")
-        self.scopes = scopes_raw.split(",") if scopes_raw else []
-    
+
+    def _load_from_firestore(self):
+        """Cloud Run環境用: Firestore から動的設定を取得"""
+        try:
+            db = firestore.Client(project=self.project_id)
+            # 'settings'コレクションの'app_config'ドキュメントに保存されている前提
+            doc_ref = db.collection("settings").document("app_config")
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                data = doc.to_dict()
+                self.google_drive_folder_id = data.get("google_drive_folder_id")
+                self.admin_group_members = data.get("admin_group_members", [])
+                self.redirect_uri = data.get("redirect_uri")
+                self.scopes = data.get("scopes", [])
+            else:
+                print("Warning: Firestore config document not found.")
+        except Exception as e:
+            print(f"Error retrieving config from Firestore: {e}")
+
     def _get_secret(self, secret_id: str) -> Optional[str]:
         """Secret Manager からシークレットを取得"""
         try:
@@ -69,7 +85,6 @@ class Config:
         except Exception as e:
             print(f"Error retrieving secret {secret_id}: {e}")
             return None
-
 
 # グローバルインスタンス
 config = Config()
