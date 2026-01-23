@@ -1,5 +1,5 @@
 steps:
-  # 1. Dockerイメージのビルド (COMMIT_SHAとlatestの両方をタグ付け)
+  # 1. Dockerイメージのビルド
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -34,30 +34,18 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
-      - '--quiet'                # 対話型プロンプトを無効にする
-      # 全環境変数の設定
-      - '--env-vars-file'
-      - 'env_vars.yaml'
-      # シークレットを /secrets/client_secret.json としてマウントする設定
+      - '--quiet'
+      # 環境変数を直接指定 (これが確実です)
+      - '--set-env-vars'
+      - 'ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID'
+      # シークレットをファイルとしてマウント
       - '--update-secrets'
-      - '/secrets/client_secret.json=GOOGLE_CLIENT_SECRET_JSON:latest'
-      # # サービスアカウントの設定 (JSON鍵を使わないADC方式)　デフォルトのサービスアカウントを利用しない場合はこの設定が必要
-      # - '--service-account'
-      # - 'helloslackbolt@$PROJECT_ID.iam.gserviceaccount.com'
-      # リソース制限
+      - '/etc/secrets/google/client_secret.json=GOOGLE_CLIENT_SECRET_JSON:latest'
       - '--max-instances'
       - '10'
       - '--memory'
       - '512Mi'
-      - '--timeout'
-      - '60s'
 
 images:
   - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:$BUILD_ID'
   - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:latest'
-
-options:
-  logging: CLOUD_LOGGING_ONLY
-  # machineType: 'E2_HIGHCPU_8'
-
-timeout: 1200s

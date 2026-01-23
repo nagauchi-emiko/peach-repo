@@ -1,3 +1,6 @@
+    def add_timestamp_to_filename(filename: str, now_str: str) -> str:
+        base, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
+        return f"{base}_{now_str}.{ext}" if ext else f"{base}_{now_str}"
 """
 ファイルアップロード ハンドラー - Slack に PDF がアップロードされたときの処理
 """
@@ -5,12 +8,12 @@ from slack_bolt import App
 from slack_sdk import WebClient
 from services.drive_service import drive_service
 from services.slack_service import slack_service
-from services.sheets_service import sheets_service
 import urllib.request
 import threading
 import time
 import re
 import json
+from datetime import datetime
 
 def register_file_handlers(app: App) -> None:
     """
@@ -87,7 +90,7 @@ def register_file_handlers(app: App) -> None:
         # 親メッセージを文字列に変換して正規表現で検索
         message_text = json.dumps(message, ensure_ascii=False)
         
-        # パターン: *保存ファイル名*\n の後の値を取得
+        # パターン: *部署フォルダID*\n の後の値を取得
         pattern = r'\*部署フォルダID\*\\n([^"]+)'
         match = re.search(pattern, message_text)
         
@@ -98,7 +101,7 @@ def register_file_handlers(app: App) -> None:
 
     def extract_filename_from_message(
             message,
-            default_name: str = "document.pdf"
+            default_name: str = "invoice.pdf"
             ) -> str:
         """
         メッセージテキストからファイル名を抽出
@@ -110,8 +113,10 @@ def register_file_handlers(app: App) -> None:
         Returns:
             ファイル名（.pdf拡張子付き）
         """
+        now_str = datetime.now().strftime('%Y%m%d%H%M%S')
+        # デフォルト名にタイムスタンプを付与
         if not message:
-            return default_name
+            return add_timestamp_to_filename(default_name, now_str)
 
         # 親メッセージを文字列に変換して正規表現で検索
         message_text = json.dumps(message, ensure_ascii=False)
@@ -121,13 +126,34 @@ def register_file_handlers(app: App) -> None:
         match = re.search(pattern, message_text)
         
         if match:
-             # ファイル名として使えない文字を除去/置換
+            # ファイル名として使えない文字を除去/置換
             # Windows/Mac/Linuxで使えない文字: \ / : * ? " < > |
             invalid_chars = r'[\\/:*?"<>|]'
             safe_filename = re.sub(invalid_chars, '_', match.group(1))
+            # 「格納日時」をタイムスタンプに置換
+            safe_filename = safe_filename.replace('格納日時', now_str)
             return safe_filename
-        return default_name
+        # デフォルト名にタイムスタンプを付与
+        return add_timestamp_to_filename(default_name, now_str)
 
+    # @app.event("message")
+    # def handle_file_upload(event, client: WebClient, ack):
+    #     # 1. サブタイプ確認
+    #     if event.get("subtype") != "file_share":
+    #         ack()
+    #         return
+
+    #     # 2. 直接実行（スレッドは使わない！）
+    #     try:
+    #         # 必要なデータを event から抽出して process に渡すか、
+    #         # process 関数自体を event 直接受取に書き換える
+    #         body = {"event": event}
+    #         process(body, client)
+    #     except Exception as e:
+    #         print(f"Error: {e}")
+        
+    #     # 3. 最後にACK
+    #     ack()
 
     @app.event("file_shared")
     def handle_file_shared(body, client: WebClient, ack):
@@ -161,6 +187,12 @@ def register_file_handlers(app: App) -> None:
             file_id = event["file_id"]
             channel_id = event["channel_id"]
             user_id = event["user_id"]
+            # # --- ここが message イベント用のキーになります ---
+            # file_id = event["files"][0]["id"]      # event["file_id"] から変更
+            # channel_id = event["channel"]          # event["channel_id"] から変更
+            # user_id = event["user"]                # event["user_id"] から変更
+            # # ----------------------------------------------
+
             thread_ts = event.get("thread_ts")
 
             print(f"event : {event}")
@@ -187,15 +219,15 @@ def register_file_handlers(app: App) -> None:
             # デフォルトはアップロードされたファイルの名前
             default_file_name = file_info.get("name", "document.pdf")
             
-            # スレッド内にアップロードされた場合、親メッセージからファイル名とフォルダIDを取得
+            # スレッド内にアップロードされた場合、親メッセージからファイル名と部署グループフォルダIDを取得
             if thread_ts:
                 parent_message = get_thread_parent_message(client, channel_id, thread_ts)
                 if parent_message:
                     file_name = extract_filename_from_message(parent_message, default_file_name)
                     print(f"スレッド親メッセージ: {parent_message}")
                     print(f"抽出したファイル名: {file_name}")
-                    prent_folder_id = extract_folderid_from_message(parent_message)
-                    print(f"抽出したファイル名: {prent_folder_id}")
+                    parent_folder_id = extract_folderid_from_message(parent_message)
+                    print(f"抽出したファイル名: {parent_folder_id}")
 
                 else:
                     file_name = default_file_name
@@ -208,7 +240,10 @@ def register_file_handlers(app: App) -> None:
             print(f"file_name: {file_name}")
             print(f"file_info: {file_info}")
 
-            yyyymm = file_name.replace('【', '').replace('-', '')[:6]
+            # 現在の年月を取得
+            # （個別払い請求書は、支払希望日（支払期限）の日付にかかわらず、また、当月の〆有無にかかわらず、常に当月のフォルダに格納する）
+            # （そもそも、個別払いは、「15日払い／月末払い」の格納に間に合わなかった場合に経理に直接依頼する目的のもの）
+            yyyymm = datetime.now().strftime('%Y%m')
 
             # ファイルをダウンロード
             download_url = file_info.get("url_private_download")
@@ -236,6 +271,9 @@ def register_file_handlers(app: App) -> None:
                 )
                 return
             
+            # で当該年月の〆実施状況を取得
+
+
             # ユーザーごとのcredentialsをロード
             drive_service.init(user_id = user_id)
 
@@ -243,8 +281,8 @@ def register_file_handlers(app: App) -> None:
             upload_result = drive_service.upload_pdf(
                 file_content=file_content,
                 file_name=file_name,
-                folder_name=yyyymm,
-                parent_folder_id=prent_folder_id
+                yyyymm=yyyymm,
+                parent_folder_id=parent_folder_id
             )
             
             if not upload_result:
@@ -256,12 +294,6 @@ def register_file_handlers(app: App) -> None:
                 return
             
             drive_file_url = upload_result.get("webViewLink", "")
-            
-            # スプレッドシートのステータスを更新
-            sheets_service.update_invoice_status(
-                status="completed",
-                drive_file_url=drive_file_url
-            )
             
             # 完了メッセージを送信
             slack_service.post_completion_message(

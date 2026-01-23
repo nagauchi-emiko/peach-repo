@@ -3,7 +3,6 @@
 """
 from datetime import datetime
 from slack_bolt import App
-from services.sheets_service import sheets_service
 from services.slack_service import slack_service
 from config import config
 
@@ -21,9 +20,9 @@ def register_modal_handlers(app: App) -> None:
         """
         ack()
         print(f"★invoice_modal★: {body['user']['id']}")
-        # ファイルにもログを出力
-        with open("modal_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"invoice_modal triggered by: {body['user']['id']}\n")
+        # # ファイルにもログを出力
+        # with open("modal_debug.log", "a", encoding="utf-8") as f:
+        #     f.write(f"invoice_modal triggered by: {body['user']['id']}\n")
 
         try:
             user_id = body["user"]["id"]
@@ -60,9 +59,6 @@ def register_modal_handlers(app: App) -> None:
                 "notes": notes
             }
             
-            # # スプレッドシートに記録
-            # sheets_service.append_invoice_data(data=invoice_data)
-            
             # グループ DM を作成（実行ユーザー + 管理者）
             admin_members = config.admin_group_members if config.admin_group_members else []
             
@@ -91,15 +87,6 @@ def register_modal_handlers(app: App) -> None:
                 invoice_data=invoice_data,
                 user_id=user_id
             )
-            
-            if message_ts:
-                print(f"ここでスプシに記録？")
-                # # スプレッドシートに thread_ts を記録
-                # sheets_service.update_invoice_status(
-                #     row_index=1,  # 最後に追加された行のインデックスは別途取得が必要
-                #     status="pending",
-                #     drive_file_url=""
-                # )
 
         except Exception as e:
             print(f"Error handling invoice submission: {e}")

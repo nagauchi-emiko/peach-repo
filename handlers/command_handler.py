@@ -2,14 +2,14 @@
 スラッシュコマンド ハンドラー
 """
 from typing import Optional, List, Dict
-from google.cloud import firestore
 from datetime import datetime
 from slack_bolt import App
-from services.sheets_service import sheets_service
 from services.drive_service import drive_service
+from services.firestore_service import get_department_folders_from_firestore
 from services.slack_service import slack_service
 from auth_router import load_credentials
 from config import config
+from services.firestore_service import save_folders_info_to_firestore
 
 
 def register_command_handlers(app: App) -> None:
@@ -36,14 +36,12 @@ def register_command_handlers(app: App) -> None:
 
         # 2. Firestoreへ上書き保存
         try:
-            db = firestore.Client()
-            # コレクション名: folders_info, ドキュメントID: 固定
-            db.collection("folders_info").document("department_folders").set({"folders": folders_info})
+            save_folders_info_to_firestore(folders_info)
         except Exception as e:
             client.chat_postEphemeral(channel=command["channel_id"], user=user_id, text=f"Firestore保存に失敗しました: {e}")
             return
 
-        # 3. Slack DMグループに完了通知（folders_infoも掲載）
+        # 3. Slack DMグループに完了通知（department_foldersも掲載）
         try:
             dm_members = config.admin_group_members
             dm_channel = slack_service.create_group_dm(dm_members)
@@ -72,7 +70,7 @@ def register_command_handlers(app: App) -> None:
         # trigger_idを先に保存
         trigger_id = body["trigger_id"]
         user_id = command["user_id"]
-        channel_id = command["channel_id"]
+        # channel_id = command["channel_id"]
         
         # 即座にack()を呼び出し、ローディングモーダルを開く
         ack()
@@ -90,6 +88,7 @@ def register_command_handlers(app: App) -> None:
         
         # ここから時間のかかる処理を実行
         credentials = load_credentials(user_id)
+        print(f"Loaded credentials for user {user_id}: {credentials is not None}")
         
         if not credentials:
             # auth_url = f"https://brentley-ungrafted-unmeaningfully.ngrok-free.dev/auth/google?user_id={user_id}"
@@ -101,23 +100,30 @@ def register_command_handlers(app: App) -> None:
             )
             return
         
-        # credentialsを使ってGoogle Sheets/Drive APIを呼び出す処理
-        sheets_service.init(user_id)
-        drive_service.init(user_id)
-        
-        folder_dict = drive_service.list_target_folders_under_parent()
+        # Firestoreから最新フォルダ情報を取得
+        folder_dict = get_department_folders_from_firestore()
         print(f"folders : {folder_dict}")
         if folder_dict:
             folders = [
                 {"label": v, "value": k} for k, v in sorted(folder_dict.items(), key=lambda x: x[1])
             ]
         else:
-            folders = [
-                {"label": "DP/コンサルティングG", "value": "folder_consulting"},
-                {"label": "DP/アライアンスG", "value": "folder_alliance"},
-                {"label": "DX", "value": "folder_dx"},
-                {"label": "その他", "value": "folder_other"}
-            ]
+            # 管理者にDMでエラー通知
+            admin_members = config.admin_group_members if config.admin_group_members else []
+            dm_channel = slack_service.create_group_dm(admin_members)
+            error_message = "共有ドライブの部署フォルダ情報がDBから取得できません。管理者にご確認ください。"
+            if dm_channel:
+                slack_service.client.chat_postMessage(
+                    channel=dm_channel,
+                    text=error_message
+                )
+            # 実行ユーザーにもエラー通知
+            client.chat_postEphemeral(
+                channel=command["channel_id"],
+                user=user_id,
+                text=error_message
+            )
+            return
         
         expense_types = [
             {"label": "仕入", "value": "仕入"},
@@ -275,7 +281,7 @@ def _create_invoice_modal(
                 "block_id": "deadline_section",
                 "label": {
                     "type": "plain_text",
-                    "text": "支払期限"
+                    "text": "支払希望日（※翌々営業日以降を指定してください。必ずしも希望日での支払い手配ができるとは限りません。ご了承ください。）"
                 },
                 "element": {
                     "type": "datepicker",

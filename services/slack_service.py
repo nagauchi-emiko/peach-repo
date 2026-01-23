@@ -88,11 +88,11 @@ class SlackService:
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*保存先フォルダ*\n{invoice_data.get('folder', '未設定')}"
+                            "text": f"*保存先フォルダ*\n{invoice_data.get('folder', '未設定')}/{invoice_data.get('deadline', '未設定').replace('-','')[:6]}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*フォルダID*\n{invoice_data.get('folder_id', '未設定')}"
+                            "text": f"*部署フォルダID*\n{invoice_data.get('folder_id', '未設定')}"
                         }
                     ]
                 },
@@ -113,7 +113,7 @@ class SlackService:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*支払期限*\n{invoice_data.get('deadline', '未設定')}"
+                        "text": f"*支払希望日*\n{invoice_data.get('deadline', '未設定')}"
                     }
                 },
                 {

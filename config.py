@@ -7,6 +7,15 @@ class Config:
     """アプリケーション設定クラス"""
     
     def __init__(self):
+        # 0. まず環境を特定する（Cloud Run上なら K_SERVICE が必ず存在する）
+        if os.environ.get("K_SERVICE"):
+            self.environment = "production"
+        else:
+            self.environment = os.environ.get("ENVIRONMENT", "development")
+
+        # 確定した環境をログに出す
+        print(f"DEBUG: Current Environment is {self.environment}")
+
         # 1. 環境変数 (Platform/Infrastructure settings)
         self.environment = os.environ.get("ENVIRONMENT", "development")
         self.project_id = os.environ.get("GCP_PROJECT_ID", "sandbox-nagauchi")
@@ -21,15 +30,14 @@ class Config:
         self.scopes = []
 
         # 2. データの読み込み
-        if self.environment == "development":
-            self._load_from_env_file()
-        else:
+        if self.environment == "production":
             # Cloud Run / Production 環境
             self._load_from_secret_manager()
             self._load_from_firestore()
+        else:
+            self._load_from_env_file()
 
         # デバッグ用
-        print(f"DEBUG: Environment: {self.environment}")
         print(f"DEBUG: Google Drive Folder ID: {self.google_drive_folder_id}")
 
     def _load_from_env_file(self):
@@ -54,7 +62,7 @@ class Config:
         self.slack_bot_token = self._get_secret("SLACK_BOT_TOKEN")
         self.slack_signing_secret = self._get_secret("SLACK_SIGNING_SECRET")
         # クライアントシークレットをファイルとしてマウントしている場合
-        self.client_secret_file = "/secrets/client_secret.json"
+        self.client_secret_file = "/etc/secrets/google/client_secret.json"
 
     def _load_from_firestore(self):
         """Cloud Run環境用: Firestore から動的設定を取得"""
