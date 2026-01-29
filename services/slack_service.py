@@ -64,7 +64,7 @@ class SlackService:
                     "type": "header",
                     "text": {
                         "type": "plain_text",
-                        "text": "📋 請求書登録確認  ※開発中のアプリのテストです！※"
+                        "text": "📋 請求書アップロード"
                     }
                 },
                 {
@@ -72,11 +72,7 @@ class SlackService:
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*実行ユーザー*\n<@{user_id}>"
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": f"*実行日時*\n{invoice_data.get('timestamp', '未設定')}"
+                            "text": f"`実行者`\n<@{user_id}>"
                         }
                     ]
                 },
@@ -88,11 +84,11 @@ class SlackService:
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*保存先フォルダ*\n{invoice_data.get('folder', '未設定')}/{invoice_data.get('deadline', '未設定').replace('-','')[:6]}"
+                            "text": f"`保存先フォルダ`\n{invoice_data.get('folder', '未設定')}/{invoice_data.get('deadline', '未設定').replace('-','')[:6]}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*部署フォルダID*\n{invoice_data.get('folder_id', '未設定')}"
+                            "text": f"`部署フォルダID`\n{invoice_data.get('folder_id', '未設定')}"
                         }
                     ]
                 },
@@ -101,11 +97,11 @@ class SlackService:
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*支払先企業名*\n{invoice_data.get('company', '未設定')}"
+                            "text": f"`支払先企業名`\n{invoice_data.get('company', '未設定')}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*経費区分*\n{invoice_data.get('expense_type', '未設定')}"
+                            "text": f"`経費区分`\n{invoice_data.get('expense_type', '未設定')}"
                         }
                     ]
                 },
@@ -113,7 +109,7 @@ class SlackService:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*支払希望日*\n{invoice_data.get('deadline', '未設定')}"
+                        "text": f"`支払希望日`\n{invoice_data.get('deadline', '未設定')}"
                     }
                 },
                 {
@@ -121,11 +117,11 @@ class SlackService:
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*通貨*\n{invoice_data.get('currency', '日本円')}"
+                            "text": f"`通貨`\n{invoice_data.get('currency', '日本円')}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*請求金額*\n{invoice_data.get('amount', '0')}"
+                            "text": f"`請求金額`\n{invoice_data.get('amount', '0')}"
                         }
                     ]
                 },
@@ -133,14 +129,14 @@ class SlackService:
                     "type": "section",
                     "text": {
                             "type": "mrkdwn",
-                            "text": f"*連絡事項*\n{invoice_data.get('notes', 'なし')}"
+                            "text": f"`連絡事項`\n{invoice_data.get('notes', 'なし')}"
                     }
                 },
                 {
                     "type": "section",
                     "text": {
                             "type": "mrkdwn",
-                            "text": f"*保存ファイル名*\n【{invoice_data.get('deadline')}期限】_{invoice_data.get('company')}_{invoice_data.get('folder')}_{invoice_data.get('amount')}_{invoice_data.get('notes')}_格納日時.pdf"
+                            "text": f"`保存ファイル名`\n【{invoice_data.get('deadline')}期限】_{invoice_data.get('company')}_{invoice_data.get('folder')}_{invoice_data.get('amount')}_{invoice_data.get('notes')}_格納日時.pdf"
                     }
                 },
                 {
@@ -159,13 +155,6 @@ class SlackService:
                 channel=channel_id,
                 blocks=blocks,
                 text="請求書登録確認"
-                # text="請求書登録確認",
-                # metadata={
-                #     "event_type": "pdf_processing_task",
-                #     "event_payload": {
-                #         "hidden_folder_id": invoice_data.get('folder_id', '未設定') 
-                #     }
-                # }
             )
             
             return response['ts']
@@ -178,42 +167,74 @@ class SlackService:
         channel_id: str,
         thread_ts: str,
         file_name: str,
-        drive_url: str
+        drive_url: str,
+        user_id: str
     ) -> bool:
         """
-        PDF アップロード完了メッセージをスレッドに送信
-        
-        Args:
-            channel_id: チャンネル ID
-            thread_ts: スレッドのタイムスタンプ
-            file_name: ファイル名
-            drive_url: Google Drive の URL
-        
-        Returns:
-            成功時は True、失敗時は False
+        PDF アップロード完了メッセージをスレッドに送信（管理者用ボタン付き）
         """
         try:
+            # drive_urlからファイルIDを抽出
+            import re
+            file_id = None
+            match = re.search(r'/d/([\w-]+)', drive_url)
+            if match:
+                file_id = match.group(1)
+            else:
+                # 旧形式URLの場合
+                match2 = re.search(r'id=([\w-]+)', drive_url)
+                if match2:
+                    file_id = match2.group(1)
+            file_id_text = f"*ファイルID*: {file_id}\n" if file_id else ""
             message = (
                 f"✅ PDF ファイルがアップロードされました\n\n"
                 f"*ファイル名*: {file_name}\n"
-                f"*保存先*: <{drive_url}|Google Drive で確認>"
+                f"*保存先*: <{drive_url}|Google Drive で確認>\n"
+                f"{file_id_text}"
             )
-            
+            # メンション用ユーザーID取得
+            mention_text = f"<@{user_id}> "
+            if hasattr(config, 'admin_user_ids') and isinstance(config.admin_user_ids, list):
+                admin_mentions = " ".join([f"<@{uid}>" for uid in config.admin_user_ids])
+                mention_text = mention_text + admin_mentions
+                
+            if mention_text:
+                message = mention_text + "\n" + message
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": message
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": "admin_actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "15日払いに変更（管理者専用）"},
+                            "action_id": "change_to_15th",
+                            "style": "primary",
+                            "value": {"file_id": file_id, "file_name": file_name}
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "月末払いに変更（管理者専用）"},
+                            "action_id": "change_to_endofmonth",
+                            "style": "primary",
+                            "value": {"file_id": file_id, "file_name": file_name}
+                        }
+                    ]
+                }
+            ]
             self.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=message,
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": message
-                        }
-                    }
-                ]
+                blocks=blocks
             )
-            
             return True
         except SlackApiError as e:
             print(f"Error posting completion message: {e.response['error']}")

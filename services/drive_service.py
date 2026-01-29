@@ -355,6 +355,30 @@ class DriveService:
                 if only_excluded_types:
                     folder_dict[b_id] = b_name
         return folder_dict
+    
+    def rename_file_by_id(self, file_id: str, new_file_name: str) -> bool:
+        """
+        指定したファイルIDのファイル名を変更する
+        """
+        try:
+            if not self.drive_service:
+                print("Drive service not initialized.")
+                return False
+
+            file_metadata = {
+                'name': new_file_name
+            }
+            updated_file = self.drive_service.files().update(
+                fileId=file_id,
+                body=file_metadata,
+                fields='id, name',
+                supportsAllDrives=True
+            ).execute()
+            print(f"Renamed file {file_id} to {updated_file.get('name')}")
+            return True
+        except HttpError as e:
+            print(f"Error renaming file: {e}")
+            return False
         
 #グローバルクラス
 drive_service = DriveService()

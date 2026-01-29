@@ -1,6 +1,3 @@
-    def add_timestamp_to_filename(filename: str, now_str: str) -> str:
-        base, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
-        return f"{base}_{now_str}.{ext}" if ext else f"{base}_{now_str}"
 """
 ファイルアップロード ハンドラー - Slack に PDF がアップロードされたときの処理
 """
@@ -14,6 +11,7 @@ import time
 import re
 import json
 from datetime import datetime
+from utility import admin_only
 
 def register_file_handlers(app: App) -> None:
     """
@@ -89,9 +87,11 @@ def register_file_handlers(app: App) -> None:
         """
         # 親メッセージを文字列に変換して正規表現で検索
         message_text = json.dumps(message, ensure_ascii=False)
+        print(f"message_text: {message_text}")
         
-        # パターン: *部署フォルダID*\n の後の値を取得
-        pattern = r'\*部署フォルダID\*\\n([^"]+)'
+        # パターン: `部署フォルダID`\n の後の値を取得
+        # pattern = r'`部署フォルダID`\n([^"]+)'
+        pattern = r'`部署フォルダID`[\n\s]+([^"\n]+)'
         match = re.search(pattern, message_text)
         
         if match:
@@ -120,9 +120,9 @@ def register_file_handlers(app: App) -> None:
 
         # 親メッセージを文字列に変換して正規表現で検索
         message_text = json.dumps(message, ensure_ascii=False)
-        
-        # パターン: *保存ファイル名*\n の後の値を取得
-        pattern = r'\*保存ファイル名\*\\n([^"]+)'
+
+        # パターン: `保存ファイル名`\n の後の値を取得
+        pattern = r'`保存ファイル名`\n([^"]+)'
         match = re.search(pattern, message_text)
         
         if match:
@@ -300,12 +300,87 @@ def register_file_handlers(app: App) -> None:
                 channel_id=channel_id,
                 thread_ts=thread_ts,
                 file_name=file_name,
-                drive_url=drive_file_url
+                drive_url=drive_file_url,
+                user_id=user_id
             )
             
         except Exception as e:
             print(f"Error handling file upload: {e}")
             import traceback
             traceback.print_exc()
-    
-    
+
+    @app.action("change_to_15th", middleware=[admin_only])
+    def handle_change_to_15th(ack, body, client, action):
+        ack()
+        _handle_change_payment_date(
+            client=client,
+            body=body,
+            action=action,
+            new_payment="15日"
+        )
+
+    @app.action("change_to_endofmonth", middleware=[admin_only])
+    def handle_change_to_endofmonth(ack, body, client, action):
+        ack()
+        _handle_change_payment_date(
+            client=client,
+            body=body,
+            action=action,
+            new_payment="月末"
+        )
+
+    def _handle_change_payment_date(client, body, action, new_payment):
+        """
+        Google Driveのファイル名の一部を「15日」または「月末」に変更し、スレッドに通知
+        """
+        user_id = body["user"]["id"]
+        channel_id = body["channel"]["id"]
+        message_ts = body["message"]["ts"]
+        file_name = action["value"]["file_name"]
+        file_id = action["value"]["file_id"]
+
+        print(f"action value: {action['value']}")
+
+        # # SlackメッセージからファイルIDを取得
+        # file_id = None
+        # print(f"body: {body}")
+        # try:
+        #     blocks = body["message"].get("blocks", [])
+        #     for block in blocks:
+        #         if block.get("type") == "section" and block.get("text", {}).get("type") == "mrkdwn":
+        #             text = block["text"]["text"]
+        #             match = re.search(r'\*ファイルID\*: ([\w-]+)', text)
+        #             if match:
+        #                 file_id = match.group(1)
+        #                 break
+        # except Exception:
+        #     pass
+
+        # Google Driveのファイル名変更処理
+        try:
+            import re
+            # 墨付きかっこ「【】」内の文字列をnew_paymentに置換
+            new_file_name = re.sub(r'【[^】]*】', f'{new_payment}', file_name)
+
+            # ユーザーごとのcredentialsをロード
+            drive_service.init(user_id = user_id)
+            drive_service.rename_file_by_id(file_id, new_file_name)
+
+            # スレッドに完了通知
+            client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=message_ts,
+                text=f"ファイルID: {file_id}\nファイル名を「{new_file_name}」に変更しました。"
+            )
+        except Exception as e:
+            client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=message_ts,
+                text=f"ファイル名変更に失敗しました: {e}"
+            )
+
+def add_timestamp_to_filename(filename: str, now_str: str) -> str:
+    base, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
+    return f"{base}_{now_str}.{ext}" if ext else f"{base}_{now_str}"
+
+

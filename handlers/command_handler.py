@@ -10,21 +10,22 @@ from services.slack_service import slack_service
 from auth_router import load_credentials
 from config import config
 from services.firestore_service import save_folders_info_to_firestore
+from utility import admin_only
 
 
 def register_command_handlers(app: App) -> None:
-    @app.command("/update_folders_info")
+    @app.command("/update_folders_info", middleware=[admin_only])
     def handle_update_folders_info(ack, command, client, body):
         ack()
         user_id = command["user_id"]
-        # 管理者チェック
-        if user_id not in config.admin_group_members:
-            client.chat_postEphemeral(
-                channel=command["channel_id"],
-                user=user_id,
-                text="管理者でないメンバーがupdate_folders_infoコマンドを実行しようとしました。管理者のみがこのコマンドを実行できます。"
-            )
-            return
+        # # 管理者チェック
+        # if user_id not in config.admin_group_members:
+        #     client.chat_postEphemeral(
+        #         channel=command["channel_id"],
+        #         user=user_id,
+        #         text="管理者でないメンバーがupdate_folders_infoコマンドを実行しようとしました。管理者のみがこのコマンドを実行できます。"
+        #     )
+        #     return
 
         # 1. Google Driveのフォルダ情報取得
         drive_service.init(user_id)
@@ -67,13 +68,10 @@ def register_command_handlers(app: App) -> None:
         
     @app.command("/invoice")
     def handle_invoice_command(ack, command, client, body):
-        # trigger_idを先に保存
+        ack()
+
         trigger_id = body["trigger_id"]
         user_id = command["user_id"]
-        # channel_id = command["channel_id"]
-        
-        # 即座にack()を呼び出し、ローディングモーダルを開く
-        ack()
         
         try:
             # まずローディングモーダルを開く（3秒以内）

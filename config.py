@@ -2,6 +2,7 @@ import os
 from typing import Optional, List, Dict, Any
 from google.cloud import secretmanager
 from google.cloud import firestore
+from services.firestore_service import load_app_config_from_firestore
 
 class Config:
     """アプリケーション設定クラス"""
@@ -67,13 +68,8 @@ class Config:
     def _load_from_firestore(self):
         """Cloud Run環境用: Firestore から動的設定を取得"""
         try:
-            db = firestore.Client(project=self.project_id)
-            # 'settings'コレクションの'app_config'ドキュメントに保存されている前提
-            doc_ref = db.collection("settings").document("app_config")
-            doc = doc_ref.get()
-            
-            if doc.exists:
-                data = doc.to_dict()
+            data = load_app_config_from_firestore()
+            if data:
                 self.google_drive_folder_id = data.get("google_drive_folder_id")
                 self.admin_group_members = data.get("admin_group_members", [])
                 self.redirect_uri = data.get("redirect_uri")
