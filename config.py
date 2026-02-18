@@ -25,8 +25,6 @@ class Config:
         # 初期化
         self.slack_bot_token = None
         self.slack_signing_secret = None
-        self.google_drive_folder_id = None
-        self.admin_group_members = []
         self.redirect_uri = None
         self.scopes = []
 
@@ -37,9 +35,6 @@ class Config:
             self._load_from_firestore()
         else:
             self._load_from_env_file()
-
-        # デバッグ用
-        print(f"DEBUG: Google Drive Folder ID: {self.google_drive_folder_id}")
 
     def _load_from_env_file(self):
         """ローカル開発環境用: .env ファイルから全て読み込み"""
@@ -52,8 +47,6 @@ class Config:
         self.client_secret_file = os.environ.get("CLIENT_SECRET_FILE")
         
         # Firestore相当の設定もローカルでは .env から
-        self.google_drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-        self.admin_group_members = os.environ.get("ADMIN_GROUP_MEMBERS", "").split(",")
         self.redirect_uri = os.environ.get("REDIRECT_URI")
         scopes_raw = os.environ.get("SCOPES")
         self.scopes = scopes_raw.split(",") if scopes_raw else []
@@ -70,8 +63,6 @@ class Config:
         try:
             data = load_app_config_from_firestore()
             if data:
-                self.google_drive_folder_id = data.get("google_drive_folder_id")
-                self.admin_group_members = data.get("admin_group_members", [])
                 self.redirect_uri = data.get("redirect_uri")
                 self.scopes = data.get("scopes", [])
             else:

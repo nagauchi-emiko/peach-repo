@@ -19,3 +19,6 @@ python-multipart==0.0.6
 
 # Development
 requests==2.31.0
+
+# 日本の祝日
+jpholiday==0.1.8

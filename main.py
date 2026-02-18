@@ -30,7 +30,7 @@ app = App(
 # FastAPI アプリケーションの初期化
 api = FastAPI(title="Slack Invoice App")
 
-# OAuth2.0　★記述場所がここでよいか要検証
+# OAuth2.0 認証ルーターの登録
 api.include_router(auth_router)
 
 # Slack リクエストハンドラーの初期化

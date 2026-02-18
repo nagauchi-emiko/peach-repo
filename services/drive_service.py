@@ -1,18 +1,15 @@
 """
 Google Drive サービス - PDF ファイルをアップロード
 """
-import json
 import io
 from typing import Optional, Dict
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from googleapiclient.errors import HttpError
-from config import config
-from auth_router import load_credentials
 import re
 from typing import Optional, Dict, List, Set
 from google.cloud import firestore
+from services.firestore_service import get_google_drive_folder_id_from_firestore
 
 class DriveService:
     """Google Drive 連携クラス（OAuth2.0ユーザー認証対応）"""
@@ -24,26 +21,17 @@ class DriveService:
     def __init__(self):
         print(f"DriveService.__init__")
     
-    def init(self, user_id: str):
+    def init(self, credentials) -> None:
         """
         初期化
         Args:
             credentials: google.oauth2.credentials.Credentials インスタンス（ユーザーごとの認証情報）
         """
         try:
-            self.credentials = load_credentials(user_id)
+            self.credentials = credentials
             self.drive_service = build('drive', 'v3', credentials=self.credentials)
             # Firestoreからfolder_idを取得
-            try:
-                db = firestore.Client()
-                doc = db.collection("settings").document("app_config").get()
-                if doc.exists:
-                    self.folder_id = doc.to_dict().get("google_drive_folder_id")
-                else:
-                    self.folder_id = None
-            except Exception as e:
-                print(f"Firestoreからfolder_id取得エラー: {e}")
-                self.folder_id = None
+            self.folder_id = get_google_drive_folder_id_from_firestore()
         except Exception as e:
             print(f"Error initializing DriveService: {e}")
             self.drive_service = None
@@ -102,7 +90,8 @@ class DriveService:
                 'id': file.get('id'),
                 'name': file.get('name'),
                 'webViewLink': file.get('webViewLink'),
-                'createdTime': file.get('createdTime')
+                'createdTime': file.get('createdTime'),
+                'target_folder_id': target_folder_id
             }
         except HttpError as e:
             print(f"Error uploading PDF: {e}")
@@ -379,6 +368,133 @@ class DriveService:
         except HttpError as e:
             print(f"Error renaming file: {e}")
             return False
+
+    def get_accessible_folders(self, folders_dict):
+        """
+        辞書内のフォルダIDをチェックし、閲覧権限があるフォルダだけの辞書を返す
+        
+        Args:
+            service: Google Drive API サービスインスタンス
+            folders_dict: { "フォルダID": "フォルダ名", ... } の辞書
+            
+        Returns:
+            accessible_folders: 閲覧権限が確認できた { "フォルダID": "フォルダ名" } の辞書
+        """
+        accessible_folders = {}
+
+        for folder_id, folder_name in folders_dict.items():
+            try:
+                # 権限チェックのためのAPI呼び出し
+                # fields='id' だけで十分（取得できれば権限がある証拠）
+                # 共有ドライブ内のフォルダも考慮して supportsAllDrives=True を指定
+                self.drive_service.files().get(
+                    fileId=folder_id,
+                    supportsAllDrives=True,
+                    fields='id'
+                ).execute()
+                
+                # エラーが起きなければ、そのフォルダは閲覧可能
+                accessible_folders[folder_id] = folder_name
+                
+            except HttpError as error:
+                # 権限がない、または存在しない場合はここに来る
+                continue
+                                    
+        return accessible_folders
+    
+    def get_folder_name_by_id(self, folder_id: str) -> Optional[str]:
+        """
+        フォルダIDからフォルダ名を取得する
+        
+        Args:
+            folder_id: フォルダID
+            
+        Returns:
+            フォルダ名、取得できなければ None
+        """
+        try:
+            if not self.drive_service:
+                return None
+            
+            folder = self.drive_service.files().get(
+                fileId=folder_id,
+                fields='name',
+                supportsAllDrives=True
+            ).execute()
+            
+            return folder.get('name')
+        except HttpError as e:
+            print(f"Error getting folder name: {e}")
+            return None
+        
+    def get_sub_folder_path(self, target_id, stop_folder_id):
+        """
+        target_id から親に向かって遡るが、stop_folder_id に到達したら停止し、
+        stop_folder_id 自体の名前も含めないパスを返す。
+        
+        Args:
+            service: Drive API service
+            target_id: 現在アップロードしたフォルダのID
+            stop_folder_id: Firestoreに登録されている基準フォルダのID
+        """
+        path_elements = []
+        current_id = target_id
+
+        try:
+            if not self.drive_service:
+                return None
+            # そもそもアップロード先が基準フォルダそのものだった場合は空文字を返す
+            if current_id == stop_folder_id:
+                return ""
+
+            while current_id:
+                # フォルダ情報を取得
+                folder = self.drive_service.files().get(
+                    fileId=current_id,
+                    fields="id, name, parents",
+                    supportsAllDrives=True
+                ).execute()
+
+                # 基準となるフォルダIDに到達したかチェック
+                if current_id == stop_folder_id:
+                    # 基準フォルダ自体の名前は含めないので、ここで終了
+                    break
+
+                # フォルダ名をリストの先頭に追加
+                path_elements.insert(0, folder.get('name'))
+
+                # 親IDを取得して次のループへ
+                parents = folder.get('parents')
+                if parents:
+                    current_id = parents[0]
+                else:
+                    # 基準フォルダに到達する前にルートに来てしまった場合（念のため）
+                    break
+
+            return " / ".join(path_elements)
+
+        except HttpError as error:
+            print(f"Error fetching folder path: {error}")
+            return " / ".join(path_elements)  # 取得できた範囲で返す
+    
+    def get_file_url_by_id(self, file_id: str) -> str | None:
+        """
+        ファイルIDから、Googleドライブのウェブ閲覧用URLを取得する
+        """
+        try:
+            # files().get で webViewLink フィールドを要求
+            file_metadata = self.drive_service.files().get(
+                fileId=file_id,
+                fields="webViewLink",
+                supportsAllDrives=True  # 共有ドライブ内のファイルも対象にする
+            ).execute()
+
+            # 取得したURLを返す
+            return file_metadata.get("webViewLink")
+
+        except HttpError as error:
+            print(f"Error fetching file URL: {error}")
+            return None
         
 #グローバルクラス
 drive_service = DriveService()

@@ -5,13 +5,16 @@ from slack_bolt import App
 from slack_sdk import WebClient
 from services.drive_service import drive_service
 from services.slack_service import slack_service
+from services.firestore_service import get_department_accounting_users_from_firestore,load_user_credentials,get_google_drive_folder_id_from_firestore
+from auth_router import get_google_auth_url
 import urllib.request
 import threading
 import time
 import re
 import json
 from datetime import datetime
-from utility import admin_only
+from utility import accountant_only
+from config import config
 
 def register_file_handlers(app: App) -> None:
     """
@@ -73,31 +76,81 @@ def register_file_handlers(app: App) -> None:
             print(f"Error fetching thread parent message: {e}")
             return None
     
-    def extract_folderid_from_message(
-            message,
-            ) -> str:
+    def check_if_already_processed(client: WebClient, channel_id: str, thread_ts: str) -> bool:
         """
-        メッセージテキストから部署フォルダIDを抽出
-        
-        Args:
-            message: メッセージの辞書データ
-            
-        Returns:
-            部署フォルダID
+        スレッド内にBotによる完了メッセージが既に存在するか確認する
         """
-        # 親メッセージを文字列に変換して正規表現で検索
-        message_text = json.dumps(message, ensure_ascii=False)
-        print(f"message_text: {message_text}")
+        try:
+            response = client.conversations_replies(channel=channel_id, ts=thread_ts, limit=20)
+            messages = response.get("messages", [])
+
+            for msg in messages:
+                # メッセージの中に blocks があり、かつ特定のボタンIDが含まれているか
+                blocks = msg.get("blocks", [])
+                for block in blocks:
+                    elements = block.get("elements", [])
+                    for element in elements:
+                        # 完了メッセージにのみ存在するボタンのIDをチェック
+                        if element.get("action_id") in ["change_to_15th", "change_to_endofmonth"]:
+                            return True
+            return False
+        except Exception as e:
+            print(f"Error checking thread history: {e}")
+            return False
+
+    def extract_executor_id_from_message(message_data) -> str:
+        """
+        メッセージデータから「実行者」のメンション（ユーザーID）を抽出
+        """
+        if isinstance(message_data, list):
+            message = message_data[0] if len(message_data) > 0 else {}
+        else:
+            message = message_data
+
+        blocks = message.get('blocks', [])
+        for block in blocks:
+            if block.get('type') == 'section':
+                text_content = block.get('text', {}).get('text', '')
+                
+                # `実行者` の後の改行にある <@U12345678> 形式を抽出
+                pattern = r'`実行者`\n<@([A-Z0-9]+)>'
+                match = re.search(pattern, text_content)
+                
+                if match:
+                    return match.group(1) # ユーザーIDのみを返す
+                    
+        return "error"
+
+    def extract_folderid_from_message(message_data) -> str:
+        """
+        メッセージデータ（リストまたは辞書）から部署フォルダIDを抽出
+        """
+        # message_data がリスト形式 [{}, {}] の場合、最初の要素を取り出す
+        if isinstance(message_data, list):
+            if len(message_data) > 0:
+                message = message_data[0]
+            else:
+                return "error: empty list"
+        else:
+            message = message_data
+
+        # messageの blocks 配列を取得
+        blocks = message.get('blocks', [])
         
-        # パターン: `部署フォルダID`\n の後の値を取得
-        # pattern = r'`部署フォルダID`\n([^"]+)'
-        pattern = r'`部署フォルダID`[\n\s]+([^"\n]+)'
-        match = re.search(pattern, message_text)
-        
-        if match:
-            safe_folderid = match.group(1)
-            return safe_folderid
-        return "error"  #★実装する
+        # 各ブロックの中から「部署フォルダID」を探す
+        for block in blocks:
+            if block.get('type') == 'section':
+                text_content = block.get('text', {}).get('text', '')
+                
+                # `部署フォルダID` の後の改行から、次の改行までの文字列を取得
+                pattern = r'`部署フォルダID`\n([^\n]+)'
+                match = re.search(pattern, text_content)
+                
+                if match:
+                    # 抽出した文字列から余計な空白を削除して返す
+                    return match.group(1).strip()
+                    
+        return "error"
 
     def extract_filename_from_message(
             message,
@@ -117,43 +170,27 @@ def register_file_handlers(app: App) -> None:
         # デフォルト名にタイムスタンプを付与
         if not message:
             return add_timestamp_to_filename(default_name, now_str)
-
-        # 親メッセージを文字列に変換して正規表現で検索
-        message_text = json.dumps(message, ensure_ascii=False)
-
-        # パターン: `保存ファイル名`\n の後の値を取得
-        pattern = r'`保存ファイル名`\n([^"]+)'
-        match = re.search(pattern, message_text)
         
-        if match:
-            # ファイル名として使えない文字を除去/置換
-            # Windows/Mac/Linuxで使えない文字: \ / : * ? " < > |
-            invalid_chars = r'[\\/:*?"<>|]'
-            safe_filename = re.sub(invalid_chars, '_', match.group(1))
-            # 「格納日時」をタイムスタンプに置換
-            safe_filename = safe_filename.replace('格納日時', now_str)
-            return safe_filename
+        parent_message = message[0]
+        blocks = parent_message.get('blocks', [])
+        
+        for block in blocks:
+            # textフィールドを持つsectionを探す
+            text_content = block.get('text', {}).get('text', '')
+            
+            # `保存ファイル名` の後の改行から、次の改行（または末尾）までを取得
+            # 生のテキストを扱うので \n でマッチします
+            pattern = r'`保存ファイル名`\n([^\n]+)'
+            match = re.search(pattern, text_content)
+            
+            if match:
+                file_name = match.group(1).strip()
+                # 「格納日時」をタイムスタンプに置換
+                file_name = file_name.replace('格納日時', now_str)
+                return file_name
+
         # デフォルト名にタイムスタンプを付与
         return add_timestamp_to_filename(default_name, now_str)
-
-    # @app.event("message")
-    # def handle_file_upload(event, client: WebClient, ack):
-    #     # 1. サブタイプ確認
-    #     if event.get("subtype") != "file_share":
-    #         ack()
-    #         return
-
-    #     # 2. 直接実行（スレッドは使わない！）
-    #     try:
-    #         # 必要なデータを event から抽出して process に渡すか、
-    #         # process 関数自体を event 直接受取に書き換える
-    #         body = {"event": event}
-    #         process(body, client)
-    #     except Exception as e:
-    #         print(f"Error: {e}")
-        
-    #     # 3. 最後にACK
-    #     ack()
 
     @app.event("file_shared")
     def handle_file_shared(body, client: WebClient, ack):
@@ -187,11 +224,6 @@ def register_file_handlers(app: App) -> None:
             file_id = event["file_id"]
             channel_id = event["channel_id"]
             user_id = event["user_id"]
-            # # --- ここが message イベント用のキーになります ---
-            # file_id = event["files"][0]["id"]      # event["file_id"] から変更
-            # channel_id = event["channel"]          # event["channel_id"] から変更
-            # user_id = event["user"]                # event["user_id"] から変更
-            # # ----------------------------------------------
 
             thread_ts = event.get("thread_ts")
 
@@ -203,31 +235,48 @@ def register_file_handlers(app: App) -> None:
 
             # ファイル情報から親メッセージのタイムスタンプを取得
             thread_ts = file_info["shares"]["private"][channel_id][0]['thread_ts']
-
             print(f"thread_ts : {thread_ts}")
             
-            # PDF ファイルかチェック
-            if file_info.get("mimetype") != "application/pdf":
-                client.chat_postMessage(
-                    channel=channel_id,
-                    thread_ts=thread_ts,
-                    text="⚠️ PDF ファイルのみアップロード可能です"
-                )
-                return
-            
-            # ========== ここが変更点 ==========
-            # デフォルトはアップロードされたファイルの名前
             default_file_name = file_info.get("name", "document.pdf")
             
             # スレッド内にアップロードされた場合、親メッセージからファイル名と部署グループフォルダIDを取得
             if thread_ts:
                 parent_message = get_thread_parent_message(client, channel_id, thread_ts)
                 if parent_message:
+                    # 実行者以外がアップロードした場合は、警告を出して終了
+                    executor_id = extract_executor_id_from_message(parent_message)
+                    print(f"抽出した実行者ID: {executor_id}")
+                    if executor_id != user_id:
+                        client.chat_postMessage(
+                            channel=channel_id,
+                            thread_ts=thread_ts,
+                            text=f"⚠️ <@{user_id}>\nこの請求書登録の「実行者」は <@{executor_id}> さんです。実行者本人以外はファイルをアップロードできません。"
+                        )
+                        print(f"権限エラー: 実行者({executor_id}) != アップロード者({user_id})")
+                        return
+                    # 二重アップロードチェック
+                    if check_if_already_processed(client, channel_id, thread_ts):
+                        client.chat_postMessage(
+                            channel=channel_id,
+                            thread_ts=thread_ts,
+                            text=f"⚠️ <@{user_id}>\nこのスレッドでは既にファイルの保存が完了しています。上書きや再アップロードはできません。"
+                        )
+                        print(f"スレッド {thread_ts} は既に処理済みのためスキップします。")
+                        return
+                    # PDF ファイルかチェック
+                    if file_info.get("mimetype") != "application/pdf":
+                        client.chat_postMessage(
+                            channel=channel_id,
+                            thread_ts=thread_ts,
+                            text="⚠️ PDF ファイルのみアップロード可能です"
+                        )
+                        return
+                    
                     file_name = extract_filename_from_message(parent_message, default_file_name)
                     print(f"スレッド親メッセージ: {parent_message}")
                     print(f"抽出したファイル名: {file_name}")
                     parent_folder_id = extract_folderid_from_message(parent_message)
-                    print(f"抽出したファイル名: {parent_folder_id}")
+                    print(f"抽出したフォルダID: {parent_folder_id}")
 
                 else:
                     file_name = default_file_name
@@ -270,12 +319,22 @@ def register_file_handlers(app: App) -> None:
                     text="❌ ファイルのダウンロードに失敗しました"
                 )
                 return
-            
-            # で当該年月の〆実施状況を取得
 
-
-            # ユーザーごとのcredentialsをロード
-            drive_service.init(user_id = user_id)
+            credentials = load_user_credentials(user_id)
+            if not credentials:
+                # 認証用URLを生成
+                auth_url = get_google_auth_url(user_id)
+                client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=thread_ts,
+                    text=(
+                        f"⚠️ <@{user_id}> さん、Google Drive へのアクセス権限が確認できませんでした。\n"
+                        f"<{auth_url}|こちらのリンクからGoogle認証> を完了してから、もう一度ファイルをアップロードしてください。"
+                    )
+                )
+                print(f"Auth required for user {user_id}. Message sent to thread.")
+                return
+            drive_service.init(credentials)
 
             # Google Drive にアップロード
             upload_result = drive_service.upload_pdf(
@@ -294,12 +353,18 @@ def register_file_handlers(app: App) -> None:
                 return
             
             drive_file_url = upload_result.get("webViewLink", "")
+            drive_folder_id = upload_result.get("target_folder_id", "")
+            base_id = get_google_drive_folder_id_from_firestore()
+            folder_path = drive_service.get_sub_folder_path(drive_folder_id, base_id)
+            print(f"保存先: {folder_path}") 
             
             # 完了メッセージを送信
             slack_service.post_completion_message(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
                 file_name=file_name,
+                folder_name=folder_path,
+                folder_id=drive_folder_id,
                 drive_url=drive_file_url,
                 user_id=user_id
             )
@@ -309,7 +374,7 @@ def register_file_handlers(app: App) -> None:
             import traceback
             traceback.print_exc()
 
-    @app.action("change_to_15th", middleware=[admin_only])
+    @app.action("change_to_15th", middleware=[accountant_only])
     def handle_change_to_15th(ack, body, client, action):
         ack()
         _handle_change_payment_date(
@@ -319,7 +384,7 @@ def register_file_handlers(app: App) -> None:
             new_payment="15日"
         )
 
-    @app.action("change_to_endofmonth", middleware=[admin_only])
+    @app.action("change_to_endofmonth", middleware=[accountant_only])
     def handle_change_to_endofmonth(ack, body, client, action):
         ack()
         _handle_change_payment_date(
@@ -336,25 +401,18 @@ def register_file_handlers(app: App) -> None:
         user_id = body["user"]["id"]
         channel_id = body["channel"]["id"]
         message_ts = body["message"]["ts"]
-        file_name = action["value"]["file_name"]
-        file_id = action["value"]["file_id"]
 
+        value_str = action.get("value")
+        if value_str:
+            try:
+                # 文字列を辞書に変換
+                value_data = json.loads(value_str)
+                file_name = value_data.get("file_name")
+                file_id = value_data.get("file_id")
+                print(f"取得成功: {file_name}")
+            except json.JSONDecodeError:
+                print("JSONのデコードに失敗しました")
         print(f"action value: {action['value']}")
-
-        # # SlackメッセージからファイルIDを取得
-        # file_id = None
-        # print(f"body: {body}")
-        # try:
-        #     blocks = body["message"].get("blocks", [])
-        #     for block in blocks:
-        #         if block.get("type") == "section" and block.get("text", {}).get("type") == "mrkdwn":
-        #             text = block["text"]["text"]
-        #             match = re.search(r'\*ファイルID\*: ([\w-]+)', text)
-        #             if match:
-        #                 file_id = match.group(1)
-        #                 break
-        # except Exception:
-        #     pass
 
         # Google Driveのファイル名変更処理
         try:
@@ -363,14 +421,37 @@ def register_file_handlers(app: App) -> None:
             new_file_name = re.sub(r'【[^】]*】', f'{new_payment}', file_name)
 
             # ユーザーごとのcredentialsをロード
-            drive_service.init(user_id = user_id)
+            credentials = load_user_credentials(user_id)
+            if not credentials:
+                # 認証用URLを生成
+                auth_url = get_google_auth_url(user_id)
+                client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=message_ts,
+                    text=(
+                        f"⚠️ <@{user_id}> さん、Google Drive へのアクセス権限が確認できませんでした。\n"
+                        f"<{auth_url}|こちらのリンクからGoogle認証> を完了してから、もう一度ファイル名変更ボタンを押してください。"
+                    )
+                )
+                print(f"Auth required for user {user_id}. Message sent to thread.")
+                return
+            drive_service.init(credentials)
             drive_service.rename_file_by_id(file_id, new_file_name)
+            drive_file_url = drive_service.get_file_url_by_id(file_id)
+
+            # メンションする経理担当者IDを取得
+            accounting_members = get_department_accounting_users_from_firestore()
+            mentions = []
+            if isinstance(accounting_members, list):
+                mentions.extend([f"<@{uid}>" for uid in accounting_members])
+            mention_text = " ".join(mentions)
+            message = mention_text + "\n" + f"\n`ファイル名を変更しました`\n<{drive_file_url}|{new_file_name}>"
 
             # スレッドに完了通知
             client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=message_ts,
-                text=f"ファイルID: {file_id}\nファイル名を「{new_file_name}」に変更しました。"
+                text=message
             )
         except Exception as e:
             client.chat_postMessage(

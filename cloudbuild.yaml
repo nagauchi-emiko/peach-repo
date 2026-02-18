@@ -46,7 +46,8 @@ steps:
       - '--max-instances'
       - '10'
       - '--memory'
-      - '256Mi'
+      # - '256Mi'
+      - '516Mi'
 
 images:
   - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:$BUILD_ID'

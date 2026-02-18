@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from google_auth_oauthlib.flow import Flow
-from services.firestore_service import save_user_credentials, load_user_credentials
-import os
+from services.firestore_service import save_user_credentials
 from config import config
 
 router = APIRouter()
@@ -10,10 +9,6 @@ router = APIRouter()
 def save_credentials(user_id, creds):
     """Credentialsオブジェクトを辞書に変換してFirestoreに保存"""
     save_user_credentials(user_id, creds)
-
-def load_credentials(user_id):
-    """Firestoreからデータを取得してCredentialsオブジェクトを再構築"""
-    return load_user_credentials(user_id)
 
 # 定数をconfig.pyから取得
 CLIENT_SECRET_FILE = config.client_secret_file
@@ -58,3 +53,11 @@ async def google_auth_callback(request: Request):
     save_credentials(state, credentials)
     
     return HTMLResponse("<h3>Google認証が完了しました。Slackに戻って操作を再開してください。</h3>")
+
+def get_google_auth_url(user_id: str) -> str:
+    """
+    ユーザーIDを紐付けたGoogle認証URLを生成する
+    """
+    # configのリプレイスロジックなどをここに隠蔽する
+    base_url = config.redirect_uri.replace('/callback', '')
+    return f"{base_url}?user_id={user_id}"

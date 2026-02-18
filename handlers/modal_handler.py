@@ -4,7 +4,10 @@
 from datetime import datetime
 from slack_bolt import App
 from services.slack_service import slack_service
+from services.firestore_service import get_department_accounting_users_from_firestore
 from config import config
+from datetime import datetime, timedelta, date
+import utility
 
 """
 モーダル送信 ハンドラーを登録
@@ -18,22 +21,37 @@ def register_modal_handlers(app: App) -> None:
         """
         請求書登録モーダル送信時の処理
         """
+        # 支払希望日バリデーション
+        values = view["state"]["values"]
+        try:
+            deadline = values["deadline_section"]["deadline_select"]["selected_date"]
+            deadline_date = datetime.strptime(deadline, "%Y-%m-%d").date()
+            today = date.today()
+            # 2営業日後を計算
+            min_allowed_date = utility.get_n_business_days_later(today, 2)
+            if deadline_date < min_allowed_date:
+                ack(response_action="errors",
+                    errors={
+                        "deadline_section": f"支払希望日は2営業日以降（{min_allowed_date}以降）の日付を指定してください。"
+                    })
+                return
+        except Exception as e:
+            print(f"Validation Error: {e}")
+            # バリデーション自体の失敗を通知（これがないとタイムアウトする）
+            ack(response_action="errors",
+                errors={
+                    "deadline_section": "日付の検証中にエラーが発生しました。"
+                })
+            return
+
         ack()
         print(f"★invoice_modal★: {body['user']['id']}")
-        # # ファイルにもログを出力
-        # with open("modal_debug.log", "a", encoding="utf-8") as f:
-        #     f.write(f"invoice_modal triggered by: {body['user']['id']}\n")
 
         try:
             user_id = body["user"]["id"]
             timestamp = datetime.now().isoformat()
-            
-            # フォームの入力値を取得
-            values = view["state"]["values"]
-            
             folder = values["folder_section"]["folder_select"]["selected_option"]["text"]["text"]
             folder_id = values["folder_section"]["folder_select"]["selected_option"]["value"]
-            deadline = values["deadline_section"]["deadline_select"]["selected_date"]
             company = values["company_block"]["company_input"]["value"]
             expense_type = values["expense_section"]["expense_select"]["selected_option"]["value"]
             currency = values["currency_section"]["currency_select"]["selected_option"]["value"]
@@ -59,16 +77,15 @@ def register_modal_handlers(app: App) -> None:
                 "notes": notes
             }
             
-            # グループ DM を作成（実行ユーザー + 管理者）
-            admin_members = config.admin_group_members if config.admin_group_members else []
-            
-            print(f"config.admin_group_members: {config.admin_group_members}")
+            # グループ DM を作成（実行ユーザー + 経理担当者）
+            accounting_members = get_department_accounting_users_from_firestore()
+            print(f"accounting_members: {accounting_members}")
 
-            # admin_group_members には複数のユーザーIDが含まれることを想定（カンマ区切り）
-            if isinstance(admin_members, list):
-                group_members = [user_id] + admin_members
+            # accounting_users には複数のユーザーIDが含まれることを想定（カンマ区切り）
+            if isinstance(accounting_members, list):
+                group_members = [user_id] + accounting_members
             else:
-                group_members = [user_id] + admin_members.split(",")
+                group_members = [user_id] + accounting_members.split(",")
             group_members = [m.strip() for m in group_members if m.strip()]
             
             print(f"group_menbers: {group_members}")
@@ -95,6 +112,6 @@ def register_modal_handlers(app: App) -> None:
             # 例外発生時にSlackモーダルへエラーを返す
             ack(response_action={
                 "errors": {
-                    "__all__": "エラーが発生しました。管理者に連絡してください。"
+                    "__all__": "エラーが発生しました。オフィスインフラ担当者に連絡してください。"
                 }
             })

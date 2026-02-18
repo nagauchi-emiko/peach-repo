@@ -5,7 +5,9 @@ from typing import List, Dict, Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from config import config
-
+import json
+from services.firestore_service import get_department_accounting_users_from_firestore,get_cached_dm_channel_id,save_dm_channel_id_to_cache
+import re
 
 class SlackService:
     """Slack 連携クラス"""
@@ -25,11 +27,16 @@ class SlackService:
             チャンネル ID（DM のチャンネルID）
         """
         try:
+            cached_channel_id = get_cached_dm_channel_id(user_ids)
+            if cached_channel_id:
+                return cached_channel_id
             # group_dm の場合は conversations.open を使用（複数人）
             response = self.client.conversations_open(
                 users=user_ids,
                 is_group=True
             )
+            # キャッシュに保存
+            save_dm_channel_id_to_cache(user_ids, response['channel']['id'])
             return response['channel']['id']
         except SlackApiError as e:
             print(f"Error creating group DM: {e.response['error']}")
@@ -58,95 +65,33 @@ class SlackService:
             【yyyymm期限】_[社名]_[部門]_[金額]_[仕入れか販管費か]_[経理への連絡]_[アップロードyyyymmddhhmmss].pdf
         """
         try:
-            # ブロックを構築
+            invoice_details = (
+                # f"*請求書アップロード*\n\n"
+                f"`実行者`\n<@{user_id}>\n"
+                f"`保存先フォルダ`\n{invoice_data.get('folder', '未設定')}/{invoice_data.get('deadline', '未設定').replace('-', '')[:6]}\n"
+                f"`保存ファイル名`\n【{invoice_data.get('deadline')}期限】_{invoice_data.get('company')}_{invoice_data.get('folder')}_{invoice_data.get('currency', '日本円')}{invoice_data.get('amount')}_{invoice_data.get('notes')}_格納日時.pdf\n"
+                f"`支払先企業名`\n{invoice_data.get('company', '未設定')}\n"
+                f"`経費区分`\n{invoice_data.get('expense_type', '未設定')}\n"
+                f"`支払希望日`\n{invoice_data.get('deadline', '未設定')}\n"
+                f"`通貨`\n{invoice_data.get('currency', '日本円')}\n"
+                f"`請求金額`\n{invoice_data.get('amount', '0')}\n"
+                f"`連絡事項`\n{invoice_data.get('notes', 'なし')}\n"
+                f"`部署フォルダID`\n{invoice_data.get('folder_id', '未設定')}\n"
+            )
+
             blocks = [
                 {
-                    "type": "header",
+                    "type": "section",
                     "text": {
-                        "type": "plain_text",
-                        "text": "📋 請求書アップロード"
+                        "type": "mrkdwn",
+                        "text": "📎*スレッドに PDF ファイルをアップロードしてください*\n※アップロードされたファイルは自動的に Google Drive に保存されます\n（処理完了まで数十秒かかります）"
                     }
-                },
-                {
-                    "type": "section",
-                    "fields": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"`実行者`\n<@{user_id}>"
-                        }
-                    ]
-                },
-                {
-                    "type": "divider"
-                },
-                {
-                    "type": "section",
-                    "fields": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"`保存先フォルダ`\n{invoice_data.get('folder', '未設定')}/{invoice_data.get('deadline', '未設定').replace('-','')[:6]}"
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": f"`部署フォルダID`\n{invoice_data.get('folder_id', '未設定')}"
-                        }
-                    ]
-                },
-                {
-                    "type": "section",
-                    "fields": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"`支払先企業名`\n{invoice_data.get('company', '未設定')}"
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": f"`経費区分`\n{invoice_data.get('expense_type', '未設定')}"
-                        }
-                    ]
                 },
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"`支払希望日`\n{invoice_data.get('deadline', '未設定')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "fields": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"`通貨`\n{invoice_data.get('currency', '日本円')}"
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": f"`請求金額`\n{invoice_data.get('amount', '0')}"
-                        }
-                    ]
-                },
-                {
-                    "type": "section",
-                    "text": {
-                            "type": "mrkdwn",
-                            "text": f"`連絡事項`\n{invoice_data.get('notes', 'なし')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                            "type": "mrkdwn",
-                            "text": f"`保存ファイル名`\n【{invoice_data.get('deadline')}期限】_{invoice_data.get('company')}_{invoice_data.get('folder')}_{invoice_data.get('amount')}_{invoice_data.get('notes')}_格納日時.pdf"
-                    }
-                },
-                {
-                    "type": "divider"
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "📎 *このスレッドに PDF ファイルをアップロードしてください*\n\nアップロードされたファイルは自動的に Google Drive に保存されます。"
+                        "text": invoice_details
                     }
                 }
             ]
@@ -154,7 +99,7 @@ class SlackService:
             response = self.client.chat_postMessage(
                 channel=channel_id,
                 blocks=blocks,
-                text="請求書登録確認"
+                text="PDFをアップロードしてください"
             )
             
             return response['ts']
@@ -167,15 +112,30 @@ class SlackService:
         channel_id: str,
         thread_ts: str,
         file_name: str,
+        folder_name: str,
+        folder_id: str,
         drive_url: str,
         user_id: str
     ) -> bool:
         """
-        PDF アップロード完了メッセージをスレッドに送信（管理者用ボタン付き）
+        PDF アップロード完了メッセージをスレッドに送信（経理担当者用ボタン付き）
         """
         try:
+            message = (
+                f"✅ *PDF ファイルがアップロードされました*\n\n"
+                f"*フォルダ：*<https://drive.google.com/drive/folders/{folder_id}|{folder_name}>\n"
+                f"*ファイル名：*<{drive_url}|{file_name}>"
+            )
+            # メンションのリストを作成（実行者 + 経理担当者）
+            accounting_members = get_department_accounting_users_from_firestore()
+            mentions = [f"<@{user_id}>"]
+            if isinstance(accounting_members, list):
+                mentions.extend([f"<@{uid}>" for uid in accounting_members])
+            mention_text = " ".join(mentions)
+
+            message = mention_text + "\n" + message
+
             # drive_urlからファイルIDを抽出
-            import re
             file_id = None
             match = re.search(r'/d/([\w-]+)', drive_url)
             if match:
@@ -185,21 +145,13 @@ class SlackService:
                 match2 = re.search(r'id=([\w-]+)', drive_url)
                 if match2:
                     file_id = match2.group(1)
-            file_id_text = f"*ファイルID*: {file_id}\n" if file_id else ""
-            message = (
-                f"✅ PDF ファイルがアップロードされました\n\n"
-                f"*ファイル名*: {file_name}\n"
-                f"*保存先*: <{drive_url}|Google Drive で確認>\n"
-                f"{file_id_text}"
-            )
-            # メンション用ユーザーID取得
-            mention_text = f"<@{user_id}> "
-            if hasattr(config, 'admin_user_ids') and isinstance(config.admin_user_ids, list):
-                admin_mentions = " ".join([f"<@{uid}>" for uid in config.admin_user_ids])
-                mention_text = mention_text + admin_mentions
-                
-            if mention_text:
-                message = mention_text + "\n" + message
+            payload_data = {
+                "file_id": file_id if file_id else "none",
+                "file_name": file_name
+            }
+            # 文字列に変換
+            button_value_str = json.dumps(payload_data)
+
             blocks = [
                 {
                     "type": "section",
@@ -214,21 +166,22 @@ class SlackService:
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "15日払いに変更（管理者専用）"},
+                            "text": {"type": "plain_text", "text": "15日払いに変更（経理担当者専用）"},
                             "action_id": "change_to_15th",
                             "style": "primary",
-                            "value": {"file_id": file_id, "file_name": file_name}
+                            "value": button_value_str
                         },
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "月末払いに変更（管理者専用）"},
+                            "text": {"type": "plain_text", "text": "月末払いに変更（経理担当者専用）"},
                             "action_id": "change_to_endofmonth",
                             "style": "primary",
-                            "value": {"file_id": file_id, "file_name": file_name}
+                            "value": button_value_str
                         }
                     ]
                 }
             ]
+            print(f"post_completion_message blocks: {blocks}")
             self.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
@@ -280,6 +233,50 @@ class SlackService:
         except SlackApiError as e:
             print(f"Error getting user info: {e.response['error']}")
             return None
+    
+    def update_to_auth_required_modal(self, client, view_id: str, user_id: str):
+        """
+        指定されたモーダルを認証要求画面に更新する
+        """
+        from auth_router import get_google_auth_url
+        
+        auth_url = get_google_auth_url(user_id)
+        view = self._create_auth_required_modal(auth_url) 
+        
+        return client.views_update(view_id=view_id, view=view)
+    
+    def _create_auth_required_modal(self, auth_url: str) -> Dict:
+        """
+        認証が必要な場合のモーダルを構築
+        """
+        return {
+            "type": "modal",
+            "callback_id": "invoice_modal_auth",
+            "title": {
+                "type": "plain_text",
+                "text": "認証が必要です"
+            },
+            "close": {
+                "type": "plain_text",
+                "text": "閉じる"
+            },
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":warning: *Google認証が必要です*\n\n請求書登録機能を使用するには、Google認証を完了してください。"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"<{auth_url}|:key: こちらをクリックして認証>"
+                    }
+                }
+            ]
+        }
 
 
 # グローバルインスタンス
