@@ -53,7 +53,5 @@ images:
   - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
   - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:latest'
 
-# ★ ビルド実行用サービスアカウント (Builder)
 options:
-  serviceAccount: 'projects/$PROJECT_ID/serviceAccounts/invoice-app-builder@$PROJECT_ID.iam.gserviceaccount.com'
   logging: CLOUD_LOGGING_ONLY
