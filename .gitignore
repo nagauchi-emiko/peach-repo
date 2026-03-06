@@ -34,3 +34,6 @@ Thumbs.db
 # --- IDE Specific ---
 .vscode/
 .idea/
+
+# --- メモ ---
+メモ_*
