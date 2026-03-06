@@ -46,7 +46,8 @@ class SlackService:
         self,
         channel_id: str,
         invoice_data: Dict,
-        user_id: str
+        user_id: str,
+        accounting_users: List[str]
     ) -> Optional[str]:
         """
         請求書情報をメッセージとして DM チャンネルに送信
@@ -65,13 +66,15 @@ class SlackService:
             【yyyymm期限】_[社名]_[部門]_[金額]_[仕入れか販管費か]_[経理への連絡]_[アップロードyyyymmddhhmmss].pdf
         """
         try:
+            accounting_users_mention_txt = " ".join([f"<@{uid}>" for uid in accounting_users]) if isinstance(accounting_users, list) else ""
             invoice_details = (
                 # f"*請求書アップロード*\n\n"
-                f"`実行者`\n<@{user_id}>\n"
+                f"`実行者`\n<@{user_id}> ({accounting_users_mention_txt})"
+                f"\n*スレッドに PDF ファイルを添付して投稿してください*\n※ファイルは自動的に Google Drive に保存されます（処理完了まで数十秒かかります）\n\n"
                 f"`保存先フォルダ`\n{invoice_data.get('folder', '未設定')}/{invoice_data.get('deadline', '未設定').replace('-', '')[:6]}\n"
                 f"`保存ファイル名`\n【{invoice_data.get('deadline')}期限】_{invoice_data.get('company')}_{invoice_data.get('folder')}_{invoice_data.get('currency', '日本円')}{invoice_data.get('amount')}_{invoice_data.get('notes')}_格納日時.pdf\n"
                 f"`支払先企業名`\n{invoice_data.get('company', '未設定')}\n"
-                f"`経費区分`\n{invoice_data.get('expense_type', '未設定')}\n"
+                f"`費用種別`\n{invoice_data.get('expense_type', '未設定')}\n"
                 f"`支払希望日`\n{invoice_data.get('deadline', '未設定')}\n"
                 f"`通貨`\n{invoice_data.get('currency', '日本円')}\n"
                 f"`請求金額`\n{invoice_data.get('amount', '0')}\n"
@@ -80,13 +83,13 @@ class SlackService:
             )
 
             blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "📎*スレッドに PDF ファイルをアップロードしてください*\n※アップロードされたファイルは自動的に Google Drive に保存されます\n（処理完了まで数十秒かかります）"
-                    }
-                },
+                # {
+                #     "type": "section",
+                #     "text": {
+                #         "type": "mrkdwn",
+                #         "text": "📎*スレッドに PDF ファイルを添付して投稿してください*\n※アップロードされたファイルは自動的に Google Drive に保存されます\n（処理完了まで数十秒かかります）"
+                #     }
+                # },
                 {
                     "type": "section",
                     "text": {
@@ -166,14 +169,14 @@ class SlackService:
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "15日払いに変更（経理担当者専用）"},
+                            "text": {"type": "plain_text", "text": "15日払いに変更（経理専用）"},
                             "action_id": "change_to_15th",
                             "style": "primary",
                             "value": button_value_str
                         },
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "月末払いに変更（経理担当者専用）"},
+                            "text": {"type": "plain_text", "text": "月末払いに変更（経理専用）"},
                             "action_id": "change_to_endofmonth",
                             "style": "primary",
                             "value": button_value_str

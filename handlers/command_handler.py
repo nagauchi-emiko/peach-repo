@@ -8,7 +8,7 @@ from services.drive_service import drive_service
 from services.firestore_service import get_department_folders_from_firestore
 from services.slack_service import slack_service
 from config import config
-from services.firestore_service import save_folders_info_to_firestore, get_department_accounting_users_from_firestore,get_department_system_admin_members_from_firestore,get_currencies_from_firestore,load_user_credentials
+from services.firestore_service import save_folders_info_to_firestore, get_department_accounting_users_from_firestore,get_department_system_admin_members_from_firestore,get_currencies_from_firestore,load_user_credentials,get_setup_message_blocks
 from utility import accountant_only
 
 
@@ -18,18 +18,133 @@ def register_command_handlers(app: App) -> None:
         ack=handle_update_folders_info_ack,
         lazy=[handle_update_folders_info_lazy]
     )
+
+    @app.command("/setup_invoice_button")
+    def setup_invoice_button(ack, say, command):
+        ack()
+        blocks = get_setup_message_blocks()
+        if not blocks:
+            print("Warning: Using default blocks as Firestore config was not found.")
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "*個別払請求書の登録はこちらから*"
+                    }
+                },
+                {
+                    "type": "rich_text",
+                    "elements": [
+                        # 1〜2番のリスト
+                        {
+                            "type": "rich_text_list",
+                            "style": "ordered",
+                            "indent": 0,
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "ボタンを押すと登録フォームが開きます"}]
+                                },
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "フォームに必要事項を入力してSubmitボタンを押します"}]
+                                }
+                            ]
+                        },
+                        # 2番の補足（黒丸・インデント）
+                        {
+                            "type": "rich_text_list",
+                            "style": "bullet",
+                            "indent": 1,
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "[実行者＋経理] のDMグループ宛てにメッセージが送信されます"}]
+                                }
+                            ]
+                        },
+                        # 3番のリスト（offsetを使って3から開始）
+                        {
+                            "type": "rich_text_list",
+                            "style": "ordered",
+                            "indent": 0,
+                            "offset": 2, # 前のリストが2つだったので、2つ分飛ばして「3」から開始
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {
+                                            "type": "text",
+                                            "text": "メッセージのスレッドに請求書PDFを添付して投稿します",
+                                            "style": {"bold": True}
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        # 3番の補足（黒丸・インデント）
+                        {
+                            "type": "rich_text_list",
+                            "style": "bullet",
+                            "indent": 1,
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "Googleドライブの所定のフォルダにPDFファイルが格納されます"}]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "請求書登録を開始する"
+                            },
+                            "style": "primary",
+                            "action_id": "open_invoice_click"
+                        }
+                    ]
+                }
+            ]
+        print(f"DEBUG: Sending setup message with blocks: {blocks}")
+        say(blocks=blocks, text="請求書登録の案内")
         
     @app.command("/invoice")
     def handle_invoice_command(ack, command, client, body):
         ack()
-        open_invoice_modal(client, body["trigger_id"], command["user_id"])
+        view_id = open_loading_modal(client, body["trigger_id"])
+        open_invoice_modal(client, command["user_id"], view_id, command["channel_id"])
+
+    @app.action("open_invoice_click")
+    def handle_invoice_button_click(ack, body, client):
+        ack()
+        
+        trigger_id = body["trigger_id"]
+        user_id = body["user"]["id"]
+        channel_id = body["channel"]["id"]
+        
+        print(f"DEBUG: Button clicked by {user_id} in {channel_id}")
+
+        # ローディングモーダルを表示
+        view_id = open_loading_modal(client, trigger_id)
+        
+        # 本番モーダルへの更新処理（重い処理）を実行
+        # 「常に割り当てる」設定なら、そのまま実行してOKです
+        open_invoice_modal(client, user_id, view_id, channel_id)
 
     @app.shortcut("open_invoice_modal")
     def handle_invoice_shortcut(ack, body, client):
         ack()
         trigger_id = body["trigger_id"]
         user_id = body["user"]["id"]
-        open_invoice_modal(client, trigger_id, user_id)
+        view_id = open_loading_modal(client, trigger_id)
+        open_invoice_modal(client, user_id, view_id)
 
     # ワークフローの「関数」ステップ（リンククリック）が呼ばれた時の処理
     @app.function("open_invoice_func")
@@ -38,27 +153,24 @@ def register_command_handlers(app: App) -> None:
         ワークフローのリンクがクリックされた時に、請求書登録モーダルを起動する
         """
         try:
-            # ワークフローの入力パラメータからユーザーIDを取得
-            # (Manifest の input_parameters で定義)
-            user_id = event["inputs"]["user_id"]
+            print(f"DEBUG: Function event received: {event}")
 
-            # モーダル起動に必要な「インタラクティブ・ポインター」を取得
-            # ※ 通常のコマンドでの trigger_id に相当するもの
-            interactivity = event.get("interactivity", {})
-            interactivity_pointer = interactivity.get("interactivity_pointer")
+            inputs = event.get("inputs", {})
+            user_id = inputs.get("user_id")
+            interactivity = inputs.get("interactivity", {})
+            pointer = interactivity.get("interactivity_pointer")
 
-            if not interactivity_pointer:
-                # ポインターが取れない場合はエラーを返して終了
-                fail(error="インタラクティブポインターの取得に失敗しました。")
+            if not pointer:
+                print(f"ERROR: interactivity_pointer still missing in inputs. Event: {event}")
+                fail(error="インタラクティブポインターの取得に失敗しました。ワークフローの設定を確認してください。")
                 return
 
             # モーダル表示
-            open_invoice_modal(client, interactivity_pointer, user_id)
-
-            # ステップを正常終了させる
-            # これを呼ばないと、Slack上のワークフローが「実行中」のまま止まってしまう
+            view_id = open_loading_modal(client, pointer)
+            # 完了報告
             complete(outputs={"success": True})
 
+            open_invoice_modal(client, user_id, view_id)
             print(f"Workflow function executed successfully for user: {user_id}")
 
         except Exception as e:
@@ -66,7 +178,7 @@ def register_command_handlers(app: App) -> None:
             # 失敗したことをワークフローに報告
             fail(error=f"モーダルの起動中にエラーが発生しました: {str(e)}")
 
-def open_invoice_modal(client, trigger_id: str, user_id: str) -> None:
+def open_loading_modal(client, trigger_id: str):   
     try:
         # まずローディングモーダルを開く（3秒以内）
         result = client.views_open(
@@ -74,10 +186,12 @@ def open_invoice_modal(client, trigger_id: str, user_id: str) -> None:
             view=_create_loading_modal()
         )
         view_id = result["view"]["id"]
+        return view_id
     except Exception as e:
         print(f"Error opening loading modal: {e}")
         return
-    
+
+def open_invoice_modal(client, user_id: str, view_id: str, channel_id: Optional[str] = None) -> None:
     # ここから時間のかかる処理を実行
     credentials = load_user_credentials(user_id)
     print(f"Loaded credentials for user {user_id}: {credentials is not None}")
@@ -98,7 +212,7 @@ def open_invoice_modal(client, trigger_id: str, user_id: str) -> None:
         ]
     else:
         # システム管理者、および、経理担当者にDMでエラー通知
-        notify_firestore_error(client, slack_service, command, user_id, "部署フォルダ情報")
+        notify_firestore_error(client, slack_service, user_id, "部署フォルダ情報", channel_id)
         return
     
     expense_types = [
@@ -113,17 +227,26 @@ def open_invoice_modal(client, trigger_id: str, user_id: str) -> None:
         ]
     else:
         # システム管理者、および、経理担当者にDMでエラー通知
-        notify_firestore_error(client, slack_service, command, user_id, "通貨情報")
+        notify_firestore_error(client, slack_service, user_id, "通貨情報", channel_id)
         return
     
     # モーダルを本来のフォームに更新
     try:
+        print(f"[DEBUG] Attempting views_update for View ID: {view_id}")
         client.views_update(
             view_id=view_id,
             view=_create_invoice_modal(folders, expense_types, currencies)
         )
+        print(f"[SUCCESS] views_update completed.")
     except Exception as e:
-        print(f"Error updating modal: {e}")
+        print(f"[ERROR] views_update failed.")
+        if hasattr(e, "response"):
+            # Slack API が返してきた具体的なエラーコード（invalid_blocks, expired_view など）
+            print(f"Slack Error Code: {e.response['error']}")
+            if "response_metadata" in e.response:
+                print(f"Error Metadata: {e.response['response_metadata']}")
+        else:
+            print(f"General Error: {str(e)}")
 
 def _create_loading_modal() -> Dict:
     """
@@ -158,7 +281,7 @@ def _create_invoice_modal(
     
     Args:
         folders: フォルダ選択肢のリスト
-        expense_types: 経費区分選択肢のリスト
+        expense_types: 費用種別選択肢のリスト
         currencies: 通貨のリスト
     
     Returns:
@@ -174,7 +297,7 @@ def _create_invoice_modal(
         for f in folders
     ]
     
-    # 経費区分選択肢を構築
+    # 費用種別選択肢を構築
     expense_options = [
         {
             "text": {"type": "plain_text", "text": e["label"]},
@@ -254,7 +377,7 @@ def _create_invoice_modal(
                 "block_id": "expense_section",
                 "label": {
                     "type": "plain_text",
-                    "text": "経費区分"
+                    "text": "費用種別"
                 },
                 "element": {
                     "type": "static_select",
@@ -324,7 +447,7 @@ def _create_invoice_modal(
         ]
     }
 
-def notify_firestore_error(client, slack_service, command, user_id, target):
+def notify_firestore_error(client, slack_service, user_id, target, channel_id=None):
     """
     Firestoreからの情報取得失敗時の通知処理
     システム管理者・経理担当者・実行ユーザーにエラー通知
@@ -335,16 +458,17 @@ def notify_firestore_error(client, slack_service, command, user_id, target):
     dm_channel = slack_service.create_group_dm(combined_list)
     error_message = f"情報がDBから取得できません。オフィスインフラ担当者にご確認ください: {target}"
     if dm_channel:
-        slack_service.client.chat_postMessage(
+        client.chat_postMessage(
             channel=dm_channel,
             text=error_message
         )
     # 実行ユーザーにもエラー通知
-    client.chat_postEphemeral(
-        channel=command["channel_id"],
-        user=user_id,
-        text=error_message
-    )
+    if channel_id:
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text=error_message
+        )
 
 def handle_update_folders_info_lazy(command, client, body):
     """
@@ -387,7 +511,7 @@ def handle_update_folders_info_lazy(command, client, body):
                 f"<@{user_id}> */update_folders_info 処理完了*\nGoogle Driveのフォルダ情報がFirestoreに保存されました。\n"
                 f"*`【最新フォルダ一覧】`*\n{folders_text}"
             )
-            slack_service.client.chat_postMessage(channel=dm_channel, text=message)
+            client.chat_postMessage(channel=dm_channel, text=message)
             
     except Exception as e:
         # 遅延処理中なので、エラーは ephemeral メッセージで通知

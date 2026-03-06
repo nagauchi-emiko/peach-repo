@@ -68,8 +68,8 @@ def register_file_handlers(app: App) -> None:
             
             messages = response.get("messages", [])
             if messages:
-                # return messages[0]
-                return messages
+                print(f"Parent message found: {messages}")
+                return messages[0]
             return None
             
         except Exception as e:
@@ -98,16 +98,11 @@ def register_file_handlers(app: App) -> None:
             print(f"Error checking thread history: {e}")
             return False
 
-    def extract_executor_id_from_message(message_data) -> str:
+    def extract_executor_id_from_message(message_data :dict) -> str:
         """
         メッセージデータから「実行者」のメンション（ユーザーID）を抽出
         """
-        if isinstance(message_data, list):
-            message = message_data[0] if len(message_data) > 0 else {}
-        else:
-            message = message_data
-
-        blocks = message.get('blocks', [])
+        blocks = message_data.get('blocks', [])
         for block in blocks:
             if block.get('type') == 'section':
                 text_content = block.get('text', {}).get('text', '')
@@ -153,7 +148,7 @@ def register_file_handlers(app: App) -> None:
         return "error"
 
     def extract_filename_from_message(
-            message,
+            message: dict,
             default_name: str = "invoice.pdf"
             ) -> str:
         """
@@ -171,8 +166,8 @@ def register_file_handlers(app: App) -> None:
         if not message:
             return add_timestamp_to_filename(default_name, now_str)
         
-        parent_message = message[0]
-        blocks = parent_message.get('blocks', [])
+        print(f"DEBUG: extract_filename_from_messageに渡されたmessage: {message}")
+        blocks = message.get('blocks', [])
         
         for block in blocks:
             # textフィールドを持つsectionを探す
@@ -200,6 +195,7 @@ def register_file_handlers(app: App) -> None:
          # まず即座に ACK を返す（Slack への 200 OK）
         ack()
 
+        
         # バックグラウンドで処理させる
         thread = threading.Thread(
             target=process,
@@ -212,153 +208,155 @@ def register_file_handlers(app: App) -> None:
     def process(body, client: WebClient):
         event_id = body.get("event_id")
 
-        # ---- ここで二重実行を防ぐ ----
         if event_id and is_event_processed(event_id):
             print(f"Duplicate event {event_id} skipped")
             return
-        # --------------------------------
 
         print(f"handle_file_shared関数: {body['event']}")
+        
+        # # 処理中メッセージのタイムスタンプを保持する変数
+        # processing_msg_ts = None
+
         try:
             event = body["event"]
             file_id = event["file_id"]
             channel_id = event["channel_id"]
             user_id = event["user_id"]
+            # thread_ts = event.get("thread_ts")
 
-            thread_ts = event.get("thread_ts")
-
-            print(f"event : {event}")
-            
             # ファイル情報を取得
             file_info_response = client.files_info(file=file_id)
             file_info = file_info_response["file"]
 
-            # ファイル情報から親メッセージのタイムスタンプを取得
-            thread_ts = file_info["shares"]["private"][channel_id][0]['thread_ts']
-            print(f"thread_ts : {thread_ts}")
+            # スレッド情報の取得
+            shares = file_info.get("shares", {})
+
+             # チャンネル内での共有情報を探す（public/private両対応）
+            channel_share = None
+            for share_type in ["public", "private"]:
+                if share_type in shares and channel_id in shares[share_type]:
+                    channel_share = shares[share_type][channel_id][0]
+                    break
             
+            # ガード: スレッド投稿でない場合は無視
+            print(f"DEBUG: channel_share: {channel_share}")
+            thread_ts = channel_share.get("thread_ts") if channel_share else None
+            if not thread_ts:
+                print(f"無視: スレッド外でのアップロードです (file_id: {file_id})")
+                return
+
+            # ガード. 親メッセージを取得して「このアプリのメッセージか」を確認
+            parent_message = get_thread_parent_message(client, channel_id, thread_ts)
+            if not parent_message:
+                return
+
+            # ガード: 親メッセージがボット(アプリ)によるものでない場合は無視
+            # bot_id があるか、もしくは特定のテキストが含まれているかで判断
+            actual_bot_id = parent_message.get("bot_id")
+            MY_BOT_ID = "B09S88Z4ZDE"  # この機能のBot ID
+            if actual_bot_id != MY_BOT_ID:
+                print(f"DEBUG: 無視: 別の送信者によるスレッドです (bot_id: {actual_bot_id})")
+                return
+
+            # ガード: さらに確実に、このアプリの「請求書登録」メッセージかを確認
+            parent_text = parent_message.get("text", "")
+            print(f"DEBUG: 親メッセージのテキスト: {parent_text}")
+            if "PDFをアップロードしてください" not in parent_text:
+                print("無視: このアプリの別機能、または無関係なボットメッセージです")
+                return
+
+            # if "private" in shares and channel_id in shares["private"]:
+            #     thread_ts = shares["private"][channel_id][0].get('thread_ts')
+            
+            print(f"thread_ts : {thread_ts}")
             default_file_name = file_info.get("name", "document.pdf")
             
+            # --- ここから各種バリデーション（チェック） ---
             # スレッド内にアップロードされた場合、親メッセージからファイル名と部署グループフォルダIDを取得
             if thread_ts:
-                parent_message = get_thread_parent_message(client, channel_id, thread_ts)
+                # parent_message = get_thread_parent_message(client, channel_id, thread_ts)
+                print(f"DEBUG: parent_message: {parent_message}")
                 if parent_message:
-                    # 実行者以外がアップロードした場合は、警告を出して終了
+                    # 1. 実行者チェック
                     executor_id = extract_executor_id_from_message(parent_message)
-                    print(f"抽出した実行者ID: {executor_id}")
                     if executor_id != user_id:
-                        client.chat_postMessage(
-                            channel=channel_id,
-                            thread_ts=thread_ts,
-                            text=f"⚠️ <@{user_id}>\nこの請求書登録の「実行者」は <@{executor_id}> さんです。実行者本人以外はファイルをアップロードできません。"
-                        )
-                        print(f"権限エラー: 実行者({executor_id}) != アップロード者({user_id})")
+                        client.chat_postMessage(channel=channel_id, thread_ts=thread_ts,
+                            text=f"⚠️ <@{user_id}>\nこの請求書登録の「実行者」は <@{executor_id}> さんです。本人以外はアップロードできません。")
                         return
-                    # 二重アップロードチェック
+                    
+                    # 2. 二重アップロードチェック
                     if check_if_already_processed(client, channel_id, thread_ts):
-                        client.chat_postMessage(
-                            channel=channel_id,
-                            thread_ts=thread_ts,
-                            text=f"⚠️ <@{user_id}>\nこのスレッドでは既にファイルの保存が完了しています。上書きや再アップロードはできません。"
-                        )
-                        print(f"スレッド {thread_ts} は既に処理済みのためスキップします。")
+                        client.chat_postMessage(channel=channel_id, thread_ts=thread_ts,
+                            text=f"⚠️ <@{user_id}>\nこのスレッドでは既に保存が完了しています。")
                         return
-                    # PDF ファイルかチェック
+                    
+                    # 3. PDFチェック
                     if file_info.get("mimetype") != "application/pdf":
-                        client.chat_postMessage(
-                            channel=channel_id,
-                            thread_ts=thread_ts,
-                            text="⚠️ PDF ファイルのみアップロード可能です"
-                        )
+                        client.chat_postMessage(channel=channel_id, thread_ts=thread_ts,
+                            text="⚠️ PDF ファイルのみアップロード可能です")
                         return
                     
                     file_name = extract_filename_from_message(parent_message, default_file_name)
-                    print(f"スレッド親メッセージ: {parent_message}")
-                    print(f"抽出したファイル名: {file_name}")
                     parent_folder_id = extract_folderid_from_message(parent_message)
-                    print(f"抽出したフォルダID: {parent_folder_id}")
-
                 else:
                     file_name = default_file_name
-                    print("親メッセージが取得できなかったため、デフォルトファイル名を使用")
             else:
-                # スレッドでない場合はデフォルトのファイル名を使用
                 file_name = default_file_name
-                print("スレッド外のアップロードのため、デフォルトファイル名を使用")
 
-            print(f"file_name: {file_name}")
-            print(f"file_info: {file_info}")
+            print(f"DEBUG: parent_message: {parent_message}")
+            print(f"DEBUG: file_name: {file_name}, parent_folder_id: {parent_folder_id}")
+            # ==========================================
+            # 処理中メッセージの投稿（重い処理の直前）
+            # ==========================================
+            res = client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=f"<@{user_id}>請求書PDFを確認しました。Googleドライブへアップロードしています... ⏳"
+            )
+            processing_msg_ts = res["ts"]
 
-            # 現在の年月を取得
-            # （個別払い請求書は、支払希望日（支払期限）の日付にかかわらず、また、当月の〆有無にかかわらず、常に当月のフォルダに格納する）
-            # （そもそも、個別払いは、「15日払い／月末払い」の格納に間に合わなかった場合に経理に直接依頼する目的のもの）
-            yyyymm = datetime.now().strftime('%Y%m')
+            print(f"DEBUG: ここまで来ました。ファイルのダウンロードとGoogle Driveへのアップロードを開始します。")
 
-            # ファイルをダウンロード
+            # 4. ファイルをダウンロード
             download_url = file_info.get("url_private_download")
-            if not download_url:
-                client.chat_postMessage(
-                    channel=channel_id,
-                    thread_ts=thread_ts,
-                    text="❌ ファイルのダウンロードに失敗しました"
-                )
-                return
-            
-            # Slack API トークンをヘッダーに含めてダウンロード
             headers = {"Authorization": f"Bearer {client.token}"}
             request = urllib.request.Request(download_url, headers=headers)
             
-            try:
-                with urllib.request.urlopen(request) as response:
-                    file_content = response.read()
-            except Exception as e:
-                print(f"Error downloading file: {e}")
-                client.chat_postMessage(
-                    channel=channel_id,
-                    thread_ts=thread_ts,
-                    text="❌ ファイルのダウンロードに失敗しました"
-                )
-                return
+            with urllib.request.urlopen(request) as response:
+                file_content = response.read()
 
+            # 5. Google認証チェック
             credentials = load_user_credentials(user_id)
             if not credentials:
-                # 認証用URLを生成
                 auth_url = get_google_auth_url(user_id)
-                client.chat_postMessage(
-                    channel=channel_id,
-                    thread_ts=thread_ts,
-                    text=(
-                        f"⚠️ <@{user_id}> さん、Google Drive へのアクセス権限が確認できませんでした。\n"
-                        f"<{auth_url}|こちらのリンクからGoogle認証> を完了してから、もう一度ファイルをアップロードしてください。"
-                    )
-                )
-                print(f"Auth required for user {user_id}. Message sent to thread.")
+                # 認証が必要な場合は処理中メッセージを更新して知らせる
+                client.chat_update(channel=channel_id, ts=processing_msg_ts,
+                    text=f"⚠️ <@{user_id}> さん、Google認証が必要です。\n<{auth_url}|こちらのリンクから認証> を完了させてから再アップロードしてください。")
                 return
-            drive_service.init(credentials)
 
-            # Google Drive にアップロード
+            drive_service.init(credentials)
+            yyyymm = datetime.now().strftime('%Y%m')
+
+            # 6. Google Drive にアップロード
             upload_result = drive_service.upload_pdf(
-                file_content=file_content,
-                file_name=file_name,
-                yyyymm=yyyymm,
-                parent_folder_id=parent_folder_id
+                file_content=file_content, file_name=file_name,
+                yyyymm=yyyymm, parent_folder_id=parent_folder_id
             )
             
             if not upload_result:
-                client.chat_postMessage(
-                    channel=channel_id,
-                    thread_ts=thread_ts,
-                    text="❌ Google Drive へのアップロードに失敗しました"
-                )
+                client.chat_update(channel=channel_id, ts=processing_msg_ts, text=f"<@{user_id}> ❌ Google Drive へのアップロードに失敗しました")
                 return
             
+            # 完了情報の取得
             drive_file_url = upload_result.get("webViewLink", "")
             drive_folder_id = upload_result.get("target_folder_id", "")
             base_id = get_google_drive_folder_id_from_firestore()
             folder_path = drive_service.get_sub_folder_path(drive_folder_id, base_id)
-            print(f"保存先: {folder_path}") 
             
-            # 完了メッセージを送信
+            # 処理中メッセージを「完了」に書き換える（または消してから投稿する）
+            # ここでは「処理中...」を消して、きれいな完了メッセージを投稿する流れにします
+            client.chat_delete(channel=channel_id, ts=processing_msg_ts)
+
             slack_service.post_completion_message(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
@@ -371,6 +369,8 @@ def register_file_handlers(app: App) -> None:
             
         except Exception as e:
             print(f"Error handling file upload: {e}")
+            if processing_msg_ts:
+                client.chat_update(channel=channel_id, ts=processing_msg_ts, text=f"❌ 予期せぬエラーが発生しました: {e}")
             import traceback
             traceback.print_exc()
 

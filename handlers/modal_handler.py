@@ -5,8 +5,7 @@ from datetime import datetime
 from slack_bolt import App
 from services.slack_service import slack_service
 from services.firestore_service import get_department_accounting_users_from_firestore
-from config import config
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
 import utility
 
 """
@@ -102,7 +101,8 @@ def register_modal_handlers(app: App) -> None:
             message_ts = slack_service.post_invoice_message(
                 channel_id=channel_id,
                 invoice_data=invoice_data,
-                user_id=user_id
+                user_id=user_id,
+                accounting_users=accounting_members
             )
 
         except Exception as e:

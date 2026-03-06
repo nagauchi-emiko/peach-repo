@@ -3,8 +3,8 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 
 # Slack SDK
-slack-bolt==1.18.0
-slack-sdk==3.27.1
+slack-bolt>=1.21.0
+slack-sdk>=3.27.1
 
 # Google Cloud
 google-cloud-firestore==2.14.0

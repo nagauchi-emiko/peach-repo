@@ -159,3 +159,16 @@ def save_dm_channel_id_to_cache(user_ids: list, channel_id: str) -> None:
         "members": sorted(user_ids), # デバッグ用にメンバー一覧も保存
         "updated_at": firestore.SERVER_TIMESTAMP
     })
+
+def get_setup_message_blocks():
+    """Firestore から設置用メッセージのブロック構成を取得する"""
+    db = firestore.Client()
+    try:
+        doc_ref = db.collection("settings").document("invoice_setup_message")
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get("blocks", [])
+        return None
+    except Exception as e:
+        print(f"Error fetching message from Firestore: {e}")
+        return None
