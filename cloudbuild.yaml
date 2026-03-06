@@ -4,21 +4,21 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:latest'
       - '.'
 
   # 2. Artifact Registryへのプッシュ
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:latest'
 
   # 3. Cloud Runへのデプロイ
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -26,29 +26,34 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'helloslackbolt'
+      - 'invoice-app' # サービス名を変更
       - '--image'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
       - '--region'
       - 'asia-northeast1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
       - '--quiet'
-      # 環境変数を直接指定 (これが確実です)
+      # ★ 実行用サービスアカウントを executor に変更
+      - '--service-account'
+      - 'invoice-app-executor@$PROJECT_ID.iam.gserviceaccount.com'
+      # 環境変数設定
       - '--set-env-vars'
       - 'ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID'
-      # シークレットをファイルとしてマウント
+      # シークレットのマウント
       - '--update-secrets'
       - '/etc/secrets/google/client_secret.json=GOOGLE_CLIENT_SECRET_JSON:latest'
-      # - '--min-instances'
-      # - '1'
       - '--max-instances'
       - '10'
       - '--memory'
-      # - '256Mi'
-      - '516Mi'
+      - '512Mi'
 
 images:
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:$BUILD_ID'
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/helloslackbolt:latest'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:latest'
+
+# ★ ビルド実行用サービスアカウント (Builder)
+options:
+  serviceAccount: 'projects/$PROJECT_ID/serviceAccounts/invoice-app-builder@$PROJECT_ID.iam.gserviceaccount.com'
+  logging: CLOUD_LOGGING_ONLY
