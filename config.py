@@ -53,8 +53,8 @@ class Config:
 
     def _load_from_secret_manager(self):
         """Cloud Run環境用: Secret Manager から機密情報を取得"""
-        self.slack_bot_token = self._get_secret("SLACK_BOT_TOKEN")
-        self.slack_signing_secret = self._get_secret("SLACK_SIGNING_SECRET")
+        self.slack_bot_token = self._get_secret("invoice-app-slack-bot-token")
+        self.slack_signing_secret = self._get_secret("invoice-app-slack-signing-secret")
         # クライアントシークレットをファイルとしてマウントしている場合
         self.client_secret_file = "/etc/secrets/google/client_secret.json"
 

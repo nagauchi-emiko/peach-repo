@@ -43,7 +43,7 @@ steps:
       - 'ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID'
       # シークレットのマウント
       - '--update-secrets'
-      - '/etc/secrets/google/client_secret.json=GOOGLE_CLIENT_SECRET_JSON:latest'
+      - '/etc/secrets/google/client_secret.json=invoice-app-google-client-secret-json:latest'
       - '--max-instances'
       - '10'
       - '--memory'
