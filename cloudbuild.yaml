@@ -4,21 +4,21 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-invoice-app-repo/invoice-app:$BUILD_ID'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-invoice-app-repo/invoice-app:latest'
       - '.'
 
   # 2. Artifact Registryへのプッシュ
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-invoice-app-repo/invoice-app:$BUILD_ID'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-invoice-app-repo/invoice-app:latest'
 
   # 3. Cloud Runへのデプロイ
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -28,7 +28,7 @@ steps:
       - 'deploy'
       - 'invoice-app' # サービス名を変更
       - '--image'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-invoice-app-repo/invoice-app:$BUILD_ID'
       - '--region'
       - 'asia-northeast1'
       - '--platform'
@@ -50,8 +50,8 @@ steps:
       - '512Mi'
 
 images:
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:$BUILD_ID'
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-app-repo/invoice-app:latest'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-invoice-app-repo/invoice-app:$BUILD_ID'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/slack-invoice-app-repo/invoice-app:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY
