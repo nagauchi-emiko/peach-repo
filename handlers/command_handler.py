@@ -7,7 +7,6 @@ from slack_bolt import App
 from services.drive_service import drive_service
 from services.firestore_service import get_department_folders_from_firestore
 from services.slack_service import slack_service
-from config import config
 from services.firestore_service import save_folders_info_to_firestore, get_department_accounting_users_from_firestore,get_department_system_admin_members_from_firestore,get_currencies_from_firestore,load_user_credentials,get_setup_message_blocks
 from utility import accountant_only
 
@@ -146,37 +145,37 @@ def register_command_handlers(app: App) -> None:
         view_id = open_loading_modal(client, trigger_id)
         open_invoice_modal(client, user_id, view_id)
 
-    # ワークフローの「関数」ステップ（リンククリック）が呼ばれた時の処理
-    @app.function("open_invoice_func")
-    def handle_open_invoice_step(event, client, complete, fail):
-        """
-        ワークフローのリンクがクリックされた時に、請求書登録モーダルを起動する
-        """
-        try:
-            print(f"DEBUG: Function event received: {event}")
+    # # ワークフローの「関数」ステップ（リンククリック）が呼ばれた時の処理
+    # @app.function("open_invoice_func")
+    # def handle_open_invoice_step(event, client, complete, fail):
+    #     """
+    #     ワークフローのリンクがクリックされた時に、請求書登録モーダルを起動する
+    #     """
+    #     try:
+    #         print(f"DEBUG: Function event received: {event}")
 
-            inputs = event.get("inputs", {})
-            user_id = inputs.get("user_id")
-            interactivity = inputs.get("interactivity", {})
-            pointer = interactivity.get("interactivity_pointer")
+    #         inputs = event.get("inputs", {})
+    #         user_id = inputs.get("user_id")
+    #         interactivity = inputs.get("interactivity", {})
+    #         pointer = interactivity.get("interactivity_pointer")
 
-            if not pointer:
-                print(f"ERROR: interactivity_pointer still missing in inputs. Event: {event}")
-                fail(error="インタラクティブポインターの取得に失敗しました。ワークフローの設定を確認してください。")
-                return
+    #         if not pointer:
+    #             print(f"ERROR: interactivity_pointer still missing in inputs. Event: {event}")
+    #             fail(error="インタラクティブポインターの取得に失敗しました。ワークフローの設定を確認してください。")
+    #             return
 
-            # モーダル表示
-            view_id = open_loading_modal(client, pointer)
-            # 完了報告
-            complete(outputs={"success": True})
+    #         # モーダル表示
+    #         view_id = open_loading_modal(client, pointer)
+    #         # 完了報告
+    #         complete(outputs={"success": True})
 
-            open_invoice_modal(client, user_id, view_id)
-            print(f"Workflow function executed successfully for user: {user_id}")
+    #         open_invoice_modal(client, user_id, view_id)
+    #         print(f"Workflow function executed successfully for user: {user_id}")
 
-        except Exception as e:
-            print(f"Error in handle_open_invoice_step: {e}")
-            # 失敗したことをワークフローに報告
-            fail(error=f"モーダルの起動中にエラーが発生しました: {str(e)}")
+    #     except Exception as e:
+    #         print(f"Error in handle_open_invoice_step: {e}")
+    #         # 失敗したことをワークフローに報告
+    #         fail(error=f"モーダルの起動中にエラーが発生しました: {str(e)}")
 
 def open_loading_modal(client, trigger_id: str):   
     try:
