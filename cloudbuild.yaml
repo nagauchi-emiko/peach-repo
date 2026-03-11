@@ -4,21 +4,21 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$BUILD_ID'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
       - '.'
 
   # 2. Artifact Registryへのプッシュ
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$BUILD_ID'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
 
   # 3. Cloud Runへのデプロイ
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -50,8 +50,8 @@ steps:
       - '512Mi'
 
 images:
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:$BUILD_ID'
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:latest'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$BUILD_ID'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY
