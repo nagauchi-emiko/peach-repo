@@ -1,16 +1,17 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# 1. Firestoreの初期化
-# ローカル環境で実行する場合は、サービスアカウントキーのパスを指定してください。
-cred = credentials.Certificate("C:\\Users\\nagauchi.emiko\\slack_invoice_app\\sandbox-nagauchi-cc008592af0c.json")
-firebase_admin.initialize_app(cred)
 
 # すでに初期化されているエラーを避けるための記述（Cloud Shellなどで実行する場合）
 if not firebase_admin._apps:
-    firebase_admin.initialize_app()
+  # # 1. Firestoreの初期化
+  # # ローカル環境で実行する場合は、サービスアカウントキーのパスを指定してください。
+  # cred = credentials.Certificate("C:\\Users\\nagauchi.emiko\\slack_invoice_app\\sandbox-nagauchi-cc008592af0c.json")
+  # firebase_admin.initialize_app(cred)
 
-db = firestore.client()
+  firebase_admin.initialize_app()
+
+db = firestore.Client(database="peach-db")
 
 # 2. 登録するブロックデータ（Pythonの構造体として定義）
 # これがFirestore上では「Array of Maps」として保存されます
@@ -130,6 +131,17 @@ def save_to_firestore():
         "blocks": target_blocks
     })
     print("Successfully updated Firestore: settings/invoice_setup_message")
+
+
+    # 設定情報をFirestoreに保存（初回のみ）（既存のデータは上書きされます）
+    db.collection("settings").document("app_config").set({
+        "currencies": {"JPY": "日本円", "USD": "米国ドル", "EUR": "ユーロ", "CNY": "中国元", "THB": "タイバーツ"},
+        "accounting_users": ["U05UPHBV0GK", "U05R8TB0XR6", "U01VD8QJC0G"],  # 長内、近藤、藤井裕菜
+        "system_admin_members": ["U05UPHBV0GK"],  # 長内
+        "scopes": ["drive","spreadsheets"]})
+    
+    db.collection("folders_info").document("exclude_folder_ids").set({
+        "exclude_folder_ids": ["1n9j8sjvYlLZtXUu9qLh8nXoLm3mN1", "1sKjv0a2eHqfVh5r7wW8x9yZcD4e5f6"]}) # 除外するフォルダIDの例
 
 if __name__ == "__main__":
     save_to_firestore()

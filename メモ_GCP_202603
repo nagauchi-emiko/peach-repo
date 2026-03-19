@@ -41,10 +41,10 @@ service-237986654776@gcp-sa-cloudbuild.iam.gserviceaccount.com
 ---Cloud Buildでトリガー設定する-----
 
 トリガーを作成する
-  置換変数
+  置換変数(cloudbuild.yaml内で使われる)
   _EXECUTOR_NAME: peach-dev-executor
   _REPO_NAME: peach-repo-dev
-  _SECRET_NAME: peach-dev-google-secret-json
+  _SECRET_NAME: peach-dev-google-client-secret-json
   _SERVICE_NAME: peach-app-dev
 
   サービスアカウント
