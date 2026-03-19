@@ -226,7 +226,7 @@ class DriveService:
         """
         # Firestoreから除外フォルダ（カード決済明細、【経理作業用】など）のIDを取得
         try:
-            db = firestore.Client()
+            db = firestore.Client(database="peach-db")
             doc = db.collection("folders_info").document("exclude_folder_ids").get()
             if doc.exists:
                 exclude_folder_ids = doc.to_dict().get("exclude_folder_ids", [])

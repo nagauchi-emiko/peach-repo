@@ -8,7 +8,7 @@ def save_user_credentials(user_id: str, creds: Credentials) -> None:
     ユーザーのGoogle認証情報CredentialsオブジェクトをFirestoreに保存
     コレクション名: google_drive_tokens, ドキュメントID: user_id
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc_ref = db.collection("google_drive_tokens").document(user_id)
     doc_ref.set({
         "token": creds.token,
@@ -24,7 +24,7 @@ def load_user_credentials(user_id: str) -> Credentials | None:
     """
     FirestoreからユーザーのGoogle認証情報を取得しCredentialsを返す
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc = db.collection("google_drive_tokens").document(user_id).get()
     if not doc.exists:
         return None
@@ -43,7 +43,7 @@ def save_folders_info_to_firestore(folders_info: Dict) -> None:
     経理共有ドライブ配下の部署フォルダ情報をFirestoreに保存する（【経理作業用】などを除いた状態）
     コレクション名: folders_info, ドキュメントID: department_folders
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     db.collection("folders_info").document("department_folders").set({"folders": folders_info})
 
 def get_department_folders_from_firestore() -> Dict[str, str]:
@@ -51,7 +51,7 @@ def get_department_folders_from_firestore() -> Dict[str, str]:
     Firestoreのfolders_info/department_foldersからフォルダ情報を取得し、
     drive_service.list_target_folders_under_parent()と同じ形式（{id: label}）の辞書を返す
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc = db.collection("folders_info").document("department_folders").get()
     if not doc.exists:
         return {}
@@ -66,7 +66,7 @@ def get_department_accounting_users_from_firestore() -> list:
     Firestoreから経理担当ユーザーリストを取得する
     Returns: list of user IDs
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc = db.collection("settings").document("app_config").get()
     if not doc.exists:
         return []
@@ -79,7 +79,7 @@ def get_department_system_admin_members_from_firestore() -> list:
     Firestoreからシステム管理者ユーザーリストを取得する
     Returns: list of user IDs
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc = db.collection("settings").document("app_config").get()
     if not doc.exists:
         return []
@@ -92,7 +92,7 @@ def get_google_drive_folder_id_from_firestore() -> str:
     FirestoreからGoogle DriveのルートフォルダIDを取得する
     Returns: list of folder ID
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc = db.collection("settings").document("app_config").get()
     if not doc.exists:
         return ""
@@ -105,7 +105,7 @@ def get_currencies_from_firestore() -> list:
     Firestoreから通貨リストを取得する
     Returns: list of currency codes
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc = db.collection("settings").document("app_config").get()
     if not doc.exists:
         return {}
@@ -118,7 +118,7 @@ def load_app_config_from_firestore() -> dict:
     Firestoreのsettings/app_configドキュメントから設定情報を取得
     Returns: dict（redirect_uri, scopes など）
     """
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc_ref = db.collection("settings").document("app_config")
     doc = doc_ref.get()
     if doc.exists:
@@ -137,7 +137,7 @@ def get_cached_dm_channel_id(user_ids: list) -> str | None:
     # ユーザーIDをソートして結合し、ハッシュ化（一意のキーを作成）
     user_key = hashlib.md5(",".join(sorted(user_ids)).encode()).hexdigest()
     
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     doc = db.collection("dm_channel_cache").document(user_key).get()
     
     if doc.exists:
@@ -153,7 +153,7 @@ def save_dm_channel_id_to_cache(user_ids: list, channel_id: str) -> None:
         
     user_key = hashlib.md5(",".join(sorted(user_ids)).encode()).hexdigest()
     
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     db.collection("dm_channel_cache").document(user_key).set({
         "channel_id": channel_id,
         "members": sorted(user_ids), # デバッグ用にメンバー一覧も保存
@@ -162,7 +162,7 @@ def save_dm_channel_id_to_cache(user_ids: list, channel_id: str) -> None:
 
 def get_setup_message_blocks():
     """Firestore から設置用メッセージのブロック構成を取得する"""
-    db = firestore.Client()
+    db = firestore.Client(database="peach-db")
     try:
         doc_ref = db.collection("settings").document("invoice_setup_message")
         doc = doc_ref.get()
