@@ -4,21 +4,21 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$BUILD_ID'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
       - '.'
 
   # 2. Artifact Registryへのプッシュ
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$BUILD_ID'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:latest'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
 
   # 3. Cloud Runへのデプロイ
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -26,9 +26,9 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'peach-app' # サービス名を変更
+      - '${_SERVICE_NAME}' # サービス名
       - '--image'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:$BUILD_ID'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$BUILD_ID'
       - '--region'
       - 'asia-northeast1'
       - '--platform'
@@ -37,21 +37,21 @@ steps:
       - '--quiet'
       # ★ 実行用サービスアカウントを executor に変更
       - '--service-account'
-      - 'peach-executor@$PROJECT_ID.iam.gserviceaccount.com'
+      - '${_EXECUTOR_NAME}@$PROJECT_ID.iam.gserviceaccount.com'
       # 環境変数設定
       - '--set-env-vars'
       - 'ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID'
       # シークレットのマウント
       - '--update-secrets'
-      - '/etc/secrets/google/client_secret.json=peach-google-client-secret-json:latest'
+      - '/etc/secrets/google/client_secret.json=${_SECRET_NAME}:latest'
       - '--max-instances'
       - '10'
       - '--memory'
       - '512Mi'
 
 images:
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:$BUILD_ID'
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/peach-repo/peach-app:latest'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$BUILD_ID'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY
