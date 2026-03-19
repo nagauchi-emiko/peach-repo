@@ -1,0 +1,51 @@
+コードネームをpeachにしました！
+bouquetの下記２つのサービスアカウントに、ロールの付与をお願いします:woman-bowing:
+
+peach-builder@
+  付与するロール：
+    Cloud Run 管理者
+    Artifact Registry 書き込み
+    ログ書き込み
+
+
+peach-executor@
+  付与するロール：
+    Cloud Datastore ユーザー
+    Secret Manager のシークレット参照者(ペーロードアクセス)
+    ログ書き込み
+
+サービスアカウントユーザーの付与
+  peach-executor の詳細画面の [アクセス権を持つプリンシパル] タブで、peach-builder に対し 「サービス アカウント ユーザー」 を付与。
+
+ソースコードはGithubの下記リポジトリに置いてて、mainブランチにコードがpushされると本番環境（bouquet）にデプロイ、developブランチにpushされると開発環境（sandbox-nagauchi）にデプロイされるようにしようとしています。
+https://github.com/nagauchi-emiko/peach-repo
+git push origin develop
+git push origin main
+
+---Cloud Buildでトリガー設定するために必要な権限設定-----
+
+下記のCloud Buildのサービスエージェントに、「Secret Manager の管理者」 (roles/secretmanager.admin)のロールの付与をお願いします。
+service-237986654776@gcp-sa-cloudbuild.iam.gserviceaccount.com
+
+■ロール付与の方法
+
+1. [IAM と管理] ＞ [IAM] 画面を開きます。
+2.「Google 提供のロール付与を含める」 のチェックボックス（画面右上あたり）にチェックが入っていることを確認します。
+リストの中から、以下のメールアドレスを探してください。
+service-237986654776@gcp-sa-cloudbuild.iam.gserviceaccount.com
+※もし見つからない場合は、上部の [アクセス権を付与] をクリックし、このアドレスを直接入力してください。
+
+3.そのアカウントに、以下のロール（役割）を付与して保存します。
+ロール: 「Secret Manager の管理者」 (roles/secretmanager.admin)
+
+---Cloud Buildでトリガー設定する-----
+
+トリガーを作成する
+  置換変数
+  _EXECUTOR_NAME: peach-dev-executor
+  _REPO_NAME: peach-repo-dev
+  _SECRET_NAME: peach-dev-google-secret-json
+  _SERVICE_NAME: peach-app-dev
+
+  サービスアカウント
+  peach-builder@を指定する
