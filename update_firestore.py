@@ -138,7 +138,10 @@ def save_to_firestore():
         "currencies": {"JPY": "日本円", "USD": "米国ドル", "EUR": "ユーロ", "CNY": "中国元", "THB": "タイバーツ"},
         "accounting_users": ["U05UPHBV0GK", "U05R8TB0XR6", "U01VD8QJC0G"],  # 長内、近藤、藤井裕菜
         "system_admin_members": ["U05UPHBV0GK"],  # 長内
-        "scopes": ["drive","spreadsheets"]})
+        "scopes": ["drive","spreadsheets"],
+        "google_drive_folder_id": "1rZRibqd7q4OXGM7NrdfyfUgriA_gdfKo", # 経理共有ドライブのルートフォルダID
+        "redirect_uri": "https://peach-app-237986654776.asia-northeast1.run.app/auth/google/callback" # OAuthのリダイレクトURI
+    })
     
     db.collection("folders_info").document("exclude_folder_ids").set({
         "exclude_folder_ids": ["1n9j8sjvYlLZtXUu9qLh8nXoLm3mN1", "1sKjv0a2eHqfVh5r7wW8x9yZcD4e5f6"]}) # 除外するフォルダIDの例
