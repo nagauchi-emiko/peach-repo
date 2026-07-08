@@ -187,6 +187,33 @@ def register_file_handlers(app: App) -> None:
         # デフォルト名にタイムスタンプを付与
         return add_timestamp_to_filename(default_name, now_str)
 
+    def extract_payment_yyyymm_from_message(message: dict) -> str:
+        """
+        メッセージデータから「支払希望日」を抽出し、'YYYYMM' 形式の文字列で返す。
+        取得・パースに失敗した場合は、フォールバックとして現在の年月を返す。
+        """
+        blocks = message.get('blocks', [])
+        for block in blocks:
+            if block.get('type') == 'section':
+                text_content = block.get('text', {}).get('text', '')
+                
+                # `支払希望日` の後の改行から、次の改行までの文字列を取得
+                pattern = r'`支払希望日`\n([^\n]+)'
+                match = re.search(pattern, text_content)
+                
+                if match:
+                    date_str = match.group(1).strip()  # 例: "2026-03-25" や "2026/03/25"
+                    
+                    # 数字以外の文字（ハイフンやスラッシュ）をすべて除去
+                    digits = re.sub(r'\D', '', date_str)  # 例: "20260325"
+                    
+                    # 先頭の6文字が年月（YYYYMM）になっているかチェックして返す
+                    if len(digits) >= 6:
+                        return digits[:6]  # 例: "202603"
+                        
+        # 抽出に失敗した場合は、安全のため現在年月を返す
+        return datetime.now().strftime('%Y%m')
+
     @app.event("file_shared")
     def handle_file_shared(body, client: WebClient, ack):
         """
@@ -335,7 +362,8 @@ def register_file_handlers(app: App) -> None:
                 return
 
             drive_service.init(credentials)
-            yyyymm = datetime.now().strftime('%Y%m')
+            # yyyymm = datetime.now().strftime('%Y%m')
+            yyyymm = extract_payment_yyyymm_from_message(parent_message)
 
             # 6. Google Drive にアップロード
             upload_result = drive_service.upload_pdf(
